@@ -3,6 +3,7 @@ Modular Streamlit Dashboard Views for FireWatch AI.
 """
 
 from __future__ import annotations
+import os
 import io
 import json
 from datetime import datetime
