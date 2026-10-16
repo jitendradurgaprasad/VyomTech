@@ -171,6 +171,15 @@ cp .env.example .env       # Linux/macOS
 *Note: Simulation mode is enabled (`NOTIFICATION_SIMULATION_MODE=True`) by default.*
 
 ### 5. Launch the Dashboard
+
+**On Windows (One-Click Launch):**
+Simply double-click `run.bat` in the project root, or execute:
+```cmd
+run.bat
+```
+*(This automatically verifies Python, checks and installs any missing dependencies, initializes `.env`, and launches the dashboard.)*
+
+**Or via Terminal / PowerShell:**
 ```bash
 streamlit run app.py
 ```

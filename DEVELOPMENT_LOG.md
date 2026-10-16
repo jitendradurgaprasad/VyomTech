@@ -153,3 +153,4 @@
     11. Settings & About
   - Built comprehensive `README.md` with system architecture diagrams, formula breakdowns, installation steps, and troubleshooting.
   - Added `LICENSE` (MIT).
+  - Added `run.bat` Windows one-click batch launcher in project root with automatic Python detection, dependency checks, `.env` initialization, and dashboard startup.
