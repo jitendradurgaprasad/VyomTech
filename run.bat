@@ -26,7 +26,7 @@ echo [*] Detected: %PYTHON_VER%
 
 :: Check if requirements are installed
 echo [*] Checking dependencies...
-python -c "import streamlit, pandas, numpy, folium, streamlit_folium, plotly, sklearn, pydantic, requests, sqlite3" >nul 2>&1
+python -c "import streamlit, pandas, numpy, folium, streamlit_folium, plotly, sklearn, pydantic, requests, PIL, sqlite3" >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     echo [*] Installing missing dependencies from requirements.txt...
     python -m pip install -r requirements.txt

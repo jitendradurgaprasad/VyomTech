@@ -5,7 +5,7 @@
 [![Framework](https://img.shields.io/badge/Streamlit-1.35%2B-FF4B4B.svg)](https://streamlit.io/)
 [![Geospatial](https://img.shields.io/badge/Folium-Leaflet-green.svg)](https://python-visualization.github.io/folium/)
 [![Database](https://img.shields.io/badge/SQLite-WAL--Mode-lightgrey.svg)](https://www.sqlite.org/)
-[![Testing](https://img.shields.io/badge/Pytest-26%20Passed-brightgreen.svg)](https://pytest.org/)
+[![Testing](https://img.shields.io/badge/Pytest-32%20Passed-brightgreen.svg)](https://pytest.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
@@ -195,8 +195,9 @@ pytest -v
 ```
 
 ### Verification Results:
-All 28 tests pass deterministically across 8 test suites:
+All 32 tests pass deterministically across 9 test suites:
 - `tests/test_automation.py` (2 tests): Autonomous fire pipeline, satellite optical snapshot generation, email dispatch routing.
+- `tests/test_ers_routing.py` (4 tests): ERS directory loading, nearest emergency station locator, remote district synthesis, emergency map bounding box and dispatch vector routing.
 - `tests/test_validator.py` (9 tests): CSV structure, coordinate bounds, date/time parsing, missing fields, duplicates, synthetic edge cases.
 - `tests/test_priority.py` (4 tests): Score determinism, missing FRP fallback, threshold tiers, configurable weights.
 - `tests/test_clustering.py` (3 tests): Haversine distance, DBSCAN spatial grouping, cluster metrics preservation.
@@ -211,7 +212,7 @@ All 28 tests pass deterministically across 8 test suites:
 
 | View | Purpose |
 | :--- | :--- |
-| **⚡ Autonomous Fire Monitor** | One-click autonomous monitor: Ingests NASA satellite stream, detects active fires, generates optical satellite image snapshots with crosshair overlays, and automatically routes/dispatches alerts to the nearest emergency authority email (`mjdp8086@gmail.com`). |
+| **⚡ Autonomous Fire Monitor** | One-click autonomous monitor: Ingests NASA satellite stream, detects active fires, generates optical satellite image snapshots with crosshairs, loads an interactive satellite frame map on screen, highlights the nearest Emergency Response Station (ERS) with geodesic routing, and displays live mail notification status with one-click WhatsApp/SMS dispatch. |
 | **System Overview** | High-level operational metrics (total observations, high-priority counts, pending reviews, simulated alerts), live disclaimer, and distribution charts. |
 | **Data Ingestion & Import** | Load built-in genuine MODIS/VIIRS samples, fetch live NASA FIRMS feeds, upload custom CSVs, or run synthetic edge cases. |
 | **Interactive Map & Table** | Folium interactive geospatial map with priority-colored circle markers, detailed telemetry popups, cluster layer toggle, and synchronized filterable table. |
