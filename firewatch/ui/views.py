@@ -1,0 +1,693 @@
+"""
+Modular Streamlit Dashboard Views for FireWatch AI.
+"""
+
+from __future__ import annotations
+import io
+import json
+from datetime import datetime
+from typing import List, Dict, Any, Optional
+import pandas as pd
+import streamlit as st
+from streamlit_folium import st_folium
+
+from firewatch.config import AppSettings, ScoringConfig, ClusteringConfig
+from firewatch.data.schemas import ObservationNormalized, ValidationReport
+from firewatch.data.validator import CSVValidator
+from firewatch.data.acquisition import FIRMSAcquisitionManager
+from firewatch.analysis.priority import PriorityRanker
+from firewatch.analysis.clustering import SpatialClusterer
+from firewatch.analysis.context import GeoContextResolver
+from firewatch.storage.database import DatabaseManager
+from firewatch.notifications.manager import NotificationManager
+from firewatch.ui.map_view import build_folium_map
+from firewatch.ui.charts import (
+    create_priority_distribution_chart,
+    create_frp_histogram,
+    create_satellite_share_pie,
+    create_confidence_vs_frp_scatter
+)
+
+
+def observations_to_df(observations: List[ObservationNormalized]) -> pd.DataFrame:
+    """Convert observation objects to a presentation DataFrame."""
+    if not observations:
+        return pd.DataFrame()
+    rows = []
+    for o in observations:
+        rows.append({
+            "ID": o.id,
+            "Priority Score": o.priority_score,
+            "Priority Level": o.priority_level,
+            "Confidence (%)": round(o.confidence_normalized * 100, 1),
+            "FRP (MW)": o.frp,
+            "Latitude": o.latitude,
+            "Longitude": o.longitude,
+            "Acquisition Time": o.acq_datetime,
+            "Satellite": o.satellite,
+            "Instrument": o.instrument,
+            "Cluster Size": o.cluster_size,
+            "Repeat Detections": o.repeat_detection_count,
+            "Region": o.administrative_region,
+            "Jurisdiction": o.jurisdiction
+        })
+    return pd.DataFrame(rows)
+
+
+# ==============================================================================
+# VIEW 1: OVERVIEW
+# ==============================================================================
+def render_overview(observations: List[ObservationNormalized], db: DatabaseManager, settings: AppSettings):
+    st.subheader("System Overview & Operational Metrics")
+    
+    st.warning(
+        f"**Mandatory Operating Notice**: {settings.disclaimer}",
+        icon="ℹ️"
+    )
+
+    # Calculate live KPIs
+    total_imported = len(observations)
+    high_priority = sum(1 for o in observations if o.priority_level == "High Review Priority")
+    medium_priority = sum(1 for o in observations if o.priority_level == "Medium Review Priority")
+    low_priority = sum(1 for o in observations if o.priority_level == "Low Review Priority")
+    
+    reviews = db.get_all_reviews()
+    reviewed_ids = set(r["observation_id"] for r in reviews)
+    awaiting_review = sum(1 for o in observations if o.id not in reviewed_ids)
+    
+    notif_logs = db.get_notification_logs(limit=500)
+    simulated_notifs = sum(1 for n in notif_logs if n.get("status") == "simulated")
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Total Observations", total_imported)
+    col2.metric("High Review Priority", high_priority, delta=f"{high_priority} urgent", delta_color="inverse")
+    col3.metric("Awaiting Human Review", awaiting_review)
+    col4.metric("Reviews Logged", len(reviews))
+    col5.metric("Simulated Alerts", simulated_notifs)
+
+    st.markdown("---")
+
+    # Analytics charts
+    c1, c2 = st.columns(2)
+    with c1:
+        st.plotly_chart(create_priority_distribution_chart(observations), use_container_width=True)
+    with c2:
+        st.plotly_chart(create_satellite_share_pie(observations), use_container_width=True)
+
+    c3, c4 = st.columns(2)
+    with c3:
+        st.plotly_chart(create_frp_histogram(observations), use_container_width=True)
+    with c4:
+        st.plotly_chart(create_confidence_vs_frp_scatter(observations), use_container_width=True)
+
+
+# ==============================================================================
+# VIEW 2: DATA INGESTION & IMPORT
+# ==============================================================================
+def render_data_ingestion(db: DatabaseManager, settings: AppSettings) -> Optional[List[ObservationNormalized]]:
+    st.subheader("NASA FIRMS Data Acquisition & CSV Ingestion")
+
+    st.info(
+        "Ingest genuine NASA FIRMS active fire datasets or custom CSV files. "
+        "Original source attributes are strictly preserved and validated."
+    )
+
+    source_tab1, source_tab2, source_tab3 = st.tabs([
+        "Built-in Genuine Samples", "Live FIRMS Download / API", "Upload Custom CSV"
+    ])
+
+    new_observations = None
+    validation_rep = None
+
+    with source_tab1:
+        st.markdown("#### Load Verified Benchmark Datasets")
+        st.caption("Pre-loaded genuine NASA FIRMS NRT CSV files and labelled synthetic test suite.")
+        
+        col_b1, col_b2, col_b3 = st.columns(3)
+        with col_b1:
+            if st.button("Load MODIS South Asia Sample (Genuine)", use_container_width=True):
+                with st.spinner("Loading and validating MODIS sample..."):
+                    res = FIRMSAcquisitionManager.load_local_sample("firms_modis_sample.csv")
+                    if res.success:
+                        obs, rep = CSVValidator.validate_csv(res.content, "MODIS_South_Asia_24h")
+                        new_observations, validation_rep = obs, rep
+                        st.session_state["validation_report"] = rep
+                        st.success(f"Loaded {rep.valid_rows} valid records from MODIS sample.")
+                    else:
+                        st.error(res.error)
+
+        with col_b2:
+            if st.button("Load VIIRS South Asia Sample (Genuine)", use_container_width=True):
+                with st.spinner("Loading and validating VIIRS sample..."):
+                    res = FIRMSAcquisitionManager.load_local_sample("firms_viirs_sample.csv")
+                    if res.success:
+                        obs, rep = CSVValidator.validate_csv(res.content, "VIIRS_South_Asia_24h")
+                        new_observations, validation_rep = obs, rep
+                        st.session_state["validation_report"] = rep
+                        st.success(f"Loaded {rep.valid_rows} valid records from VIIRS sample.")
+                    else:
+                        st.error(res.error)
+
+        with col_b3:
+            if st.button("Load Synthetic Test Suite (Edge Cases)", use_container_width=True):
+                with st.spinner("Loading and validating synthetic test cases..."):
+                    res = FIRMSAcquisitionManager.load_local_sample("synthetic_test_cases.csv")
+                    if res.success:
+                        obs, rep = CSVValidator.validate_csv(res.content, "Synthetic_Test_Cases")
+                        new_observations, validation_rep = obs, rep
+                        st.session_state["validation_report"] = rep
+                        st.warning(f"Ingested SYNTHETIC test file. Valid: {rep.valid_rows}, Rejected: {rep.invalid_rows}")
+                    else:
+                        st.error(res.error)
+
+    with source_tab2:
+        st.markdown("#### Live NASA FIRMS Download")
+        feed_choice = st.selectbox(
+            "Select Live NRT CSV Feed:",
+            [
+                ("modis_south_asia_24h", "NASA MODIS C6.1 South Asia (Past 24 Hours)"),
+                ("viirs_south_asia_24h", "NASA Suomi-NPP VIIRS South Asia (Past 24 Hours)"),
+                ("modis_global_24h", "NASA MODIS C6.1 Global (Past 24 Hours)"),
+                ("viirs_global_24h", "NASA Suomi-NPP VIIRS Global (Past 24 Hours)")
+            ],
+            format_func=lambda x: x[1]
+        )
+
+        col_live1, col_live2 = st.columns([1, 2])
+        with col_live1:
+            if st.button("Fetch Live Satellite Feed", type="primary"):
+                with st.spinner(f"Connecting to NASA FIRMS ({feed_choice[0]})..."):
+                    res = FIRMSAcquisitionManager.fetch_live_feed(feed_choice[0])
+                    if res.success:
+                        obs, rep = CSVValidator.validate_csv(res.content, feed_choice[0])
+                        new_observations, validation_rep = obs, rep
+                        st.session_state["validation_report"] = rep
+                        st.success(f"Live download successful! Valid records: {rep.valid_rows}, Invalid: {rep.invalid_rows}")
+                    else:
+                        st.error(f"Live fetch failed: {res.error}")
+        with col_live2:
+            st.caption(
+                "Directly streams genuine near-real-time thermal anomaly CSV feeds published by NASA LANCE ESDIS. "
+                "No API key required for public 24h feeds."
+            )
+
+    with source_tab3:
+        st.markdown("#### Upload Custom FIRMS CSV")
+        uploaded_file = st.file_uploader("Upload FIRMS CSV (MODIS or VIIRS format)", type=["csv"])
+        if uploaded_file is not None:
+            if st.button("Validate and Process Uploaded CSV"):
+                content = uploaded_file.getvalue().decode("utf-8", errors="replace")
+                obs, rep = CSVValidator.validate_csv(content, uploaded_file.name)
+                new_observations, validation_rep = obs, rep
+                st.session_state["validation_report"] = rep
+                st.success(f"Processed '{uploaded_file.name}': {rep.valid_rows} valid records, {rep.invalid_rows} rejected.")
+
+    if new_observations is not None:
+        # Run spatial clustering, context resolution, and explainable ranking
+        with st.spinner("Computing spatial clusters, geographic jurisdictions, and explainable priority scores..."):
+            clusterer = SpatialClusterer(settings.clustering)
+            clusterer.cluster_observations(new_observations)
+
+            GeoContextResolver.enrich_observations(new_observations)
+
+            ranker = PriorityRanker(settings.scoring)
+            ranked_obs = ranker.rank_observations(new_observations)
+
+            db.save_observations(ranked_obs)
+            st.session_state["observations"] = ranked_obs
+            st.rerun()
+
+    return None
+
+
+# ==============================================================================
+# VIEW 3: INTERACTIVE MAP & FILTERABLE TABLE
+# ==============================================================================
+def render_interactive_map(observations: List[ObservationNormalized], db: DatabaseManager):
+    st.subheader("Geographical Map & Filterable Observation Table")
+
+    if not observations:
+        st.info("No active observations in memory. Please ingest or load a dataset first.")
+        return
+
+    # Filter controls
+    with st.expander("Filter and Display Controls", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            priority_filter = st.multiselect(
+                "Filter Priority Level:",
+                ["High Review Priority", "Medium Review Priority", "Low Review Priority"],
+                default=["High Review Priority", "Medium Review Priority", "Low Review Priority"]
+            )
+        with c2:
+            satellites = sorted(list(set(o.satellite for o in observations)))
+            satellite_filter = st.multiselect("Filter Satellite Platform:", satellites, default=satellites)
+        with c3:
+            min_frp = st.number_input("Minimum FRP (MW):", min_value=0.0, value=0.0, step=5.0)
+        with c4:
+            cluster_only = st.checkbox("Only Show Multi-point Clusters", value=False)
+
+    # Filter observations
+    filtered = [
+        o for o in observations
+        if (o.priority_level in priority_filter) and
+           (o.satellite in satellite_filter) and
+           ((o.frp or 0.0) >= min_frp) and
+           (not cluster_only or (o.cluster_size or 1) > 1)
+    ]
+
+    st.write(f"Showing **{len(filtered)}** of {len(observations)} total observations.")
+
+    selected_id = st.session_state.get("selected_obs_id", None)
+
+    # Render Folium Map
+    folium_map = build_folium_map(filtered, selected_id=selected_id)
+    st_folium(folium_map, width=None, height=520, returned_objects=[])
+
+    st.markdown("---")
+    st.markdown("#### Filtered Observations Data Table")
+
+    df_display = observations_to_df(filtered)
+    if not df_display.empty:
+        st.dataframe(df_display, use_container_width=True, height=280)
+
+        # Export CSV button
+        csv_buffer = io.StringIO()
+        df_display.to_csv(csv_buffer, index=False)
+        st.download_button(
+            label="Download Filtered Observations (CSV)",
+            data=csv_buffer.getvalue(),
+            file_name=f"firewatch_filtered_observations_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+
+
+# ==============================================================================
+# VIEW 4: PRIORITY REVIEW QUEUE
+# ==============================================================================
+def render_priority_queue(observations: List[ObservationNormalized], db: DatabaseManager, notif_manager: NotificationManager):
+    st.subheader("Priority Review Queue (Explainable Ranking)")
+
+    if not observations:
+        st.info("No active observations in queue. Ingest a dataset to populate the triage queue.")
+        return
+
+    reviews = db.get_latest_review_map()
+    pending = [o for o in observations if o.id not in reviews]
+    reviewed = [o for o in observations if o.id in reviews]
+
+    st.write(
+        f"Queue contains **{len(pending)}** unreviewed detections and **{len(reviewed)}** completed reviews."
+    )
+
+    top_obs = pending[:50] if pending else observations[:50]
+
+    for obs in top_obs:
+        with st.container():
+            is_high = obs.priority_level == "High Review Priority"
+            card_title = f"{'🔴' if is_high else '🟡'} [{obs.priority_level}] Observation: {obs.id} (Score: {obs.priority_score:.4f})"
+            
+            with st.expander(card_title, expanded=is_high):
+                c1, c2 = st.columns([2, 1])
+                with c1:
+                    st.markdown(f"**Coordinates:** `{obs.latitude:.5f}, {obs.longitude:.5f}` | **Region:** {obs.administrative_region} | **Jurisdiction:** {obs.jurisdiction}")
+                    st.markdown(f"**Acquisition:** {obs.acq_datetime} | **Platform:** {obs.satellite} ({obs.instrument})")
+                    st.markdown(f"**Confidence:** {obs.confidence_category.upper()} ({obs.confidence_normalized*100:.1f}%) | **FRP:** {f'{obs.frp:.1f} MW' if obs.frp is not None else 'N/A'}")
+                    
+                    st.markdown("##### Score Explanations:")
+                    for r in (obs.priority_reasons or []):
+                        st.markdown(f"- {r}")
+
+                    st.markdown("##### Limitations & Sensor Uncertainty:")
+                    for l in (obs.priority_limitations or []):
+                        st.markdown(f"- *{l}*")
+
+                with c2:
+                    st.markdown("##### Human Triage Action")
+                    if st.button(f"Inspect & Review", key=f"btn_review_{obs.id}"):
+                        st.session_state["selected_obs_id"] = obs.id
+                        st.session_state["nav_selection"] = "Observation Details & Review"
+                        st.rerun()
+
+                    if st.button(f"Simulate Authority Alert", key=f"btn_notif_{obs.id}"):
+                        res = notif_manager.process_notification(obs, trigger_reason="Manual triage escalation")
+                        if res.success:
+                            st.success(f"Simulated alert dispatched: {res.provider_response}")
+                        else:
+                            st.error(f"Dispatch blocked or failed: {res.provider_response}")
+
+
+# ==============================================================================
+# VIEW 5: OBSERVATION DETAILS & HUMAN REVIEW
+# ==============================================================================
+def render_observation_details(observations: List[ObservationNormalized], db: DatabaseManager):
+    st.subheader("Observation Deep Dive & Feedback Submission")
+
+    if not observations:
+        st.info("No observations available.")
+        return
+
+    obs_ids = [o.id for o in observations]
+    current_sel = st.session_state.get("selected_obs_id", obs_ids[0])
+    idx = obs_ids.index(current_sel) if current_sel in obs_ids else 0
+
+    selected_id = st.selectbox("Select Observation by ID:", obs_ids, index=idx)
+    st.session_state["selected_obs_id"] = selected_id
+    obs = next((o for o in observations if o.id == selected_id), None)
+    if not obs:
+        st.error("Observation not found.")
+        return
+
+    # Details Layout
+    col_d1, col_d2 = st.columns([3, 2])
+    with col_d1:
+        st.markdown(f"### Observation {obs.id}")
+        st.markdown(
+            f"**Triage Level:** `{obs.priority_level}` (Score: `{obs.priority_score:.4f}`) | "
+            f"**Cluster Group:** `ID #{obs.cluster_id}` (Size: {obs.cluster_size})"
+        )
+        
+        st.markdown("#### Primary Attributes")
+        attr_df = pd.DataFrame([
+            {"Attribute": "Latitude", "Value": str(obs.latitude)},
+            {"Attribute": "Longitude", "Value": str(obs.longitude)},
+            {"Attribute": "Acquisition UTC", "Value": obs.acq_datetime},
+            {"Attribute": "Satellite & Sensor", "Value": f"{obs.satellite} ({obs.instrument})"},
+            {"Attribute": "Confidence", "Value": f"{obs.confidence_category} ({obs.confidence_normalized*100:.1f}%)"},
+            {"Attribute": "Fire Radiative Power (FRP)", "Value": f"{obs.frp:.1f} MW" if obs.frp is not None else "Unavailable"},
+            {"Attribute": "Brightness (Kelvin)", "Value": f"{obs.brightness_kelvin:.1f} K" if obs.brightness_kelvin else "N/A"},
+            {"Attribute": "Day / Night Pass", "Value": "Day (D)" if obs.daynight == "D" else ("Night (N)" if obs.daynight == "N" else "N/A")},
+            {"Attribute": "Administrative Region", "Value": obs.administrative_region},
+            {"Attribute": "Jurisdiction", "Value": obs.jurisdiction},
+        ])
+        st.table(attr_df)
+
+        with st.expander("View Raw Source CSV Attributes (Preserved Exactly)"):
+            st.json(obs.raw_data)
+
+    with col_d2:
+        st.markdown("### Submit Human Review")
+        st.caption(
+            "Authorised human assessment. Reviewer judgements are recorded in persistent SQLite "
+            "with a tamper-evident audit history."
+        )
+
+        with st.form(key=f"form_review_{obs.id}"):
+            reviewer_id = st.text_input("Reviewer Identifier / Account:", value="analyst_desk_01")
+            
+            review_status = st.selectbox(
+                "Review Assessment Status:",
+                [
+                    "Confirmed fire based on available evidence",
+                    "Likely fire; additional verification needed",
+                    "Possible false alarm",
+                    "Non-fire thermal source",
+                    "Unable to determine",
+                    "Awaiting review"
+                ]
+            )
+            
+            assessment_conf = st.selectbox(
+                "Assessment Confidence:",
+                ["high", "medium", "low"],
+                index=1
+            )
+            
+            notes = st.text_area(
+                "Review Notes & Corroborating Evidence:",
+                placeholder="e.g. Visible plume on satellite RGB layer, known agricultural harvest season, industrial furnace proximity..."
+            )
+
+            submit_btn = st.form_submit_button("Record Assessment", type="primary")
+            if submit_btn:
+                if not reviewer_id.strip():
+                    st.error("Reviewer identifier is required.")
+                else:
+                    rec = db.save_review(
+                        observation_id=obs.id,
+                        reviewer_id=reviewer_id.strip(),
+                        status=review_status,
+                        assessment_confidence=assessment_conf,
+                        notes=notes.strip() if notes else None
+                    )
+                    st.success(f"Feedback successfully saved! (Correction flag: {rec['is_correction']})")
+
+    st.markdown("---")
+    st.markdown("#### Chronological Audit History for this Observation")
+    history = db.get_reviews_for_observation(obs.id)
+    if history:
+        st.dataframe(pd.DataFrame(history), use_container_width=True)
+    else:
+        st.caption("No prior reviews recorded for this detection.")
+
+
+# ==============================================================================
+# VIEW 6: FEEDBACK & REVIEW HISTORY
+# ==============================================================================
+def render_feedback_history(db: DatabaseManager):
+    st.subheader("Global Review Feedback & Audit History")
+
+    all_reviews = db.get_all_reviews()
+    if not all_reviews:
+        st.info("No human reviews have been logged in the database yet.")
+        return
+
+    df_rev = pd.DataFrame(all_reviews)
+    
+    st.write(f"Total reviews logged: **{len(df_rev)}**")
+
+    # Status distribution
+    status_counts = df_rev["status"].value_counts().reset_index()
+    status_counts.columns = ["Status", "Count"]
+    st.dataframe(status_counts, use_container_width=True)
+
+    st.markdown("#### Complete Feedback Audit Log")
+    st.dataframe(df_rev, use_container_width=True)
+
+    # Export CSV
+    buf = io.StringIO()
+    df_rev.to_csv(buf, index=False)
+    st.download_button(
+        label="Export Feedback History (CSV)",
+        data=buf.getvalue(),
+        file_name=f"firewatch_feedback_history_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv"
+    )
+
+
+# ==============================================================================
+# VIEW 7: AUTHORITY DIRECTORY
+# ==============================================================================
+def render_authority_directory(db: DatabaseManager):
+    st.subheader("Configured Authority & Emergency Directory")
+
+    st.warning(
+        "Notice: Production contacts must be verified independently. "
+        "Default pre-loaded authority contacts are strictly designated as TEST DATA.",
+        icon="⚠️"
+    )
+
+    authorities = db.get_all_authorities()
+    df_auth = pd.DataFrame(authorities)
+    st.dataframe(df_auth, use_container_width=True)
+
+    with st.expander("Add or Update Authority Contact"):
+        with st.form("form_add_authority"):
+            auth_id = st.text_input("Authority ID (e.g. auth_karnataka_forest):")
+            name = st.text_input("Authority Name:")
+            jurisdiction = st.text_input("Jurisdiction Description:")
+            region = st.text_input("Administrative Region (e.g. Karnataka State):")
+            channel = st.selectbox("Dispatch Channel:", ["simulation", "email", "webhook"])
+            contact_details = st.text_input("Contact Details (e.g. internal queue, email, or URL):")
+            is_active = st.checkbox("Active Status", value=True)
+            is_test = st.checkbox("Mark as Test Data", value=True)
+
+            if st.form_submit_button("Save Authority Entry"):
+                if auth_id and name:
+                    db.add_or_update_authority(
+                        auth_id=auth_id.strip(),
+                        name=name.strip(),
+                        jurisdiction=jurisdiction.strip(),
+                        region=region.strip(),
+                        channel=channel,
+                        contact_details=contact_details.strip(),
+                        active=is_active,
+                        is_test_data=is_test
+                    )
+                    st.success(f"Authority '{name}' successfully saved.")
+                    st.rerun()
+                else:
+                    st.error("Authority ID and Name are required.")
+
+
+# ==============================================================================
+# VIEW 8: NOTIFICATION CENTRE
+# ==============================================================================
+def render_notification_centre(db: DatabaseManager, notif_manager: NotificationManager, settings: AppSettings):
+    st.subheader("Notification Centre & Audit Log")
+
+    col_s1, col_s2 = st.columns([2, 1])
+    with col_s1:
+        st.info(
+            f"**Notification Mode:** `{'SIMULATION MODE (Active - No real alerts sent)' if settings.notifications.simulation_mode else 'AUTHORIZED REAL DELIVERY (Live)'}`"
+        )
+    with col_s2:
+        st.caption("All dispatches are recorded in persistent SQLite with full message payloads.")
+
+    logs = db.get_notification_logs(limit=200)
+    if not logs:
+        st.info("No notifications generated yet.")
+        return
+
+    df_logs = pd.DataFrame(logs)
+    st.dataframe(
+        df_logs[["id", "observation_id", "recipient", "channel", "status", "priority_score", "created_at", "provider_response"]],
+        use_container_width=True
+    )
+
+    # Detailed Inspection
+    with st.expander("Inspect Notification Message Payload"):
+        sel_alert = st.selectbox("Select Alert ID:", [l["id"] for l in logs])
+        match_log = next((l for l in logs if l["id"] == sel_alert), None)
+        if match_log:
+            st.json(match_log)
+
+    # Export Audit Log
+    buf = io.StringIO()
+    df_logs.to_csv(buf, index=False)
+    st.download_button(
+        label="Export Notification Audit Logs (CSV)",
+        data=buf.getvalue(),
+        file_name=f"firewatch_notification_audit_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv"
+    )
+
+
+# ==============================================================================
+# VIEW 9: DATA VALIDATION REPORT
+# ==============================================================================
+def render_validation_report():
+    st.subheader("Data Validation & Quality Audit Report")
+
+    report: Optional[ValidationReport] = st.session_state.get("validation_report", None)
+    if not report:
+        st.info("No validation report in session. Load or ingest a CSV dataset in the 'Data Ingestion' tab.")
+        return
+
+    st.markdown(f"### Dataset: `{report.dataset_name}` ({report.source_product})")
+    st.caption(f"Validation Timestamp: {report.import_timestamp} | Attribution: {report.attribution}")
+
+    col_v1, col_v2, col_v3, col_v4 = st.columns(4)
+    col_v1.metric("Total Rows", report.total_rows)
+    col_v2.metric("Valid Rows Accepted", report.valid_rows)
+    col_v3.metric("Invalid Rows Flagged", report.invalid_rows)
+    col_v4.metric("Duplicate Rows", report.duplicate_rows)
+
+    st.markdown("#### Missing Field Frequencies")
+    if report.missing_field_counts:
+        missing_df = pd.DataFrame(list(report.missing_field_counts.items()), columns=["Field", "Missing Count"])
+        st.dataframe(missing_df, use_container_width=True)
+    else:
+        st.success("No missing required values detected across ingested fields.")
+
+    st.markdown("#### Rejection Reasons & Issues Audit")
+    if report.rejection_reasons:
+        rejections_df = pd.DataFrame([
+            {"Row": r.row_number, "Field": r.field or "N/A", "Reason": r.reason}
+            for r in report.rejection_reasons
+        ])
+        st.dataframe(rejections_df, use_container_width=True)
+    else:
+        st.success("Zero rejections! All rows conformed to FIRMS operational bounds.")
+
+    # Export Validation Report JSON & CSV
+    rep_dict = report.model_dump()
+    st.download_button(
+        label="Download Full Validation Report (JSON)",
+        data=json.dumps(rep_dict, indent=2),
+        file_name=f"validation_report_{report.dataset_name}.json",
+        mime="application/json"
+    )
+
+
+# ==============================================================================
+# VIEW 10: EVALUATION & TESTING
+# ==============================================================================
+def render_evaluation_testing():
+    st.subheader("Automated Testing Suite & Reproducible Evaluation")
+
+    st.warning(
+        "Important Evaluation Clarification: Automated unit and integration test success verifies "
+        "decision-support algorithmic determinism, schema validation, and safe error handling. "
+        "It does NOT represent real-world ground-truth wildfire detection accuracy, as satellite "
+        "thermal anomalies require independent ground and meteorological verification.",
+        icon="⚖️"
+    )
+
+    if st.button("Run Full Test Suite via Pytest", type="primary"):
+        import pytest
+        import sys
+
+        with st.spinner("Executing Pytest across all test modules..."):
+            # Capture output
+            old_stdout = sys.stdout
+            sys.stdout = buffer = io.StringIO()
+            ret_code = pytest.main(["-v", "tests"])
+            sys.stdout = old_stdout
+
+            output_text = buffer.getvalue()
+            if ret_code == 0:
+                st.success("All 26 automated tests PASSED successfully!")
+            else:
+                st.error("One or more tests failed.")
+            st.code(output_text)
+
+    st.markdown("---")
+    st.markdown("#### Test Suite Architecture & Verification Coverage")
+    st.table(pd.DataFrame([
+        {"Module": "tests/test_validator.py", "Focus": "CSV column mapping, coordinates bounds [-90,90], date/time parsing, duplicate prevention, synthetic edge cases", "Tests": 9},
+        {"Module": "tests/test_priority.py", "Focus": "Score determinism, missing FRP neutral fallback, configurable weights, review threshold categories", "Tests": 4},
+        {"Module": "tests/test_clustering.py", "Focus": "Haversine distance, DBSCAN spatial grouping, cluster metrics preservation", "Tests": 3},
+        {"Module": "tests/test_feedback.py", "Focus": "SQLite review persistence, audit trail preservation, correction flags", "Tests": 1},
+        {"Module": "tests/test_notifications.py", "Focus": "Standardized notice formatting, simulation mode isolation, duplicate cooldown throttling, SMTP failure safety", "Tests": 4},
+        {"Module": "tests/test_context.py", "Focus": "Administrative bounding box resolution, non-fabrication 'Jurisdiction unknown' fallback", "Tests": 3},
+        {"Module": "tests/test_privacy_security.py", "Focus": "Secret masking, no hardcoded API keys or passwords", "Tests": 2},
+    ]))
+
+
+# ==============================================================================
+# VIEW 11: SETTINGS & ABOUT
+# ==============================================================================
+def render_settings_about(settings: AppSettings):
+    st.subheader("System Settings, Configuration & Attribution")
+
+    col_cfg1, col_cfg2 = st.columns(2)
+    with col_cfg1:
+        st.markdown("#### Priority Scoring Weights")
+        st.caption("Adjustable triage ranking weights (normalized during calculation).")
+        st.write(f"- Confidence Weight: `{settings.scoring.weight_confidence}`")
+        st.write(f"- FRP Weight: `{settings.scoring.weight_frp}`")
+        st.write(f"- Recency Weight: `{settings.scoring.weight_recency}`")
+        st.write(f"- Cluster Weight: `{settings.scoring.weight_cluster}`")
+        st.write(f"- Repeat Detection Weight: `{settings.scoring.weight_repeat}`")
+        st.write(f"- Reference FRP: `{settings.scoring.frp_reference_mw} MW`")
+        st.write(f"- Recency Window: `{settings.scoring.recency_window_hours} Hours`")
+
+    with col_cfg2:
+        st.markdown("#### Spatial Clustering Parameters")
+        st.write(f"- Enabled: `{settings.clustering.enabled}`")
+        st.write(f"- Epsilon: `{settings.clustering.eps_km} km` (Haversine great-circle)")
+        st.write(f"- Min Samples: `{settings.clustering.min_samples}`")
+
+        st.markdown("#### Notification Mode")
+        st.write(f"- Simulation Mode: `{settings.notifications.simulation_mode}`")
+        st.write(f"- Max Retries: `{settings.notifications.max_retries}`")
+
+    st.markdown("---")
+    st.markdown("#### Data Attribution & Licensing")
+    st.info(
+        "NASA FIRMS data courtesy of NASA Earth Science Data and Information System (ESDIS) "
+        "and Land, Atmosphere Near real-time Capability for EOS (LANCE). "
+        "Operated under NASA Open Data Policy (public domain / open for scientific and commercial use). "
+        "https://firms.modaps.eosdis.nasa.gov/"
+    )
