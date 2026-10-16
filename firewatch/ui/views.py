@@ -715,11 +715,96 @@ def render_autonomous_pipeline(settings: AppSettings, db: DatabaseManager):
 
     col_c1.metric("Configured Sender", sender_mail)
     col_c2.metric("Emergency Responder", receiver_mail)
+    has_pwd = bool(settings.notifications.smtp_password or st.session_state.get("user_app_password"))
     col_c3.metric(
-        "Dispatch Mode",
-        "SIMULATION MODE" if settings.notifications.simulation_mode else "LIVE DISPATCH",
-        delta="Safe Sandbox" if settings.notifications.simulation_mode else "Active SMTP"
+        "Live Dispatch Ready",
+        "READY (Credentials Set)" if has_pwd else "SIMULATION ONLY",
+        delta="Active Gmail SMTP" if has_pwd else "Need App Password"
     )
+
+    # Live Alert Dispatch Configuration Drawer
+    with st.expander("⚙️ Live Alert Credentials & Mobile Dispatch (Email / SMS / WhatsApp)", expanded=not has_pwd):
+        st.markdown("#### Live Gmail & Mobile Alert Credentials")
+        st.caption(
+            "To send genuine emails from `mjdp4317@gmail.com` to `mjdp8086@gmail.com`, Google requires a free 16-character **App Password** "
+            "(Google blocks direct password logins for third-party scripts). Generate one in 30 seconds at: "
+            "[https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)"
+        )
+
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            entered_pwd = st.text_input(
+                "Gmail 16-Character App Password:",
+                type="password",
+                value=st.session_state.get("user_app_password", os.getenv("SMTP_PASSWORD", "")),
+                placeholder="xxxx xxxx xxxx xxxx",
+                help="16-character password generated from Google Security App Passwords"
+            )
+            if entered_pwd:
+                st.session_state["user_app_password"] = entered_pwd.strip().replace(" ", "")
+                settings.notifications.smtp_password = entered_pwd.strip().replace(" ", "")
+                settings.notifications.simulation_mode = False
+
+        with col_g2:
+            mobile_nums = st.text_input(
+                "Emergency Mobile Numbers (for SMS / WhatsApp):",
+                value="9705447958, 7793956633"
+            )
+
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            if st.button("✉️ Send Live Test Fire Alert Email to mjdp8086@gmail.com"):
+                active_pwd = st.session_state.get("user_app_password", settings.notifications.smtp_password)
+                if not active_pwd or active_pwd.strip() == "" or "example" in active_pwd:
+                    st.error("Please enter your 16-character Gmail App Password above to send a real email.")
+                else:
+                    with st.spinner("Connecting to smtp.gmail.com:587 and dispatching test alert with satellite snapshot..."):
+                        from firewatch.notifications.providers import SmtpNotificationProvider
+                        from firewatch.data.imagery import SatelliteImageryManager
+                        
+                        test_img = SatelliteImageryManager.fetch_satellite_snapshot(18.52, 73.85, "test_live_alert", frp=65.0, confidence_pct=95.0)
+                        smtp = SmtpNotificationProvider(
+                            host="smtp.gmail.com",
+                            port=587,
+                            username=sender_mail,
+                            password=active_pwd,
+                            from_email=sender_mail
+                        )
+                        test_body = (
+                            "========================================================\n"
+                            "FIREWATCH AI - EMERGENCY ACTIVE FIRE ALERT\n"
+                            "========================================================\n"
+                            "Notice ID: ALERT-LIVE-TEST-001\n"
+                            "Target Authority: Emergency Response System (mjdp8086@gmail.com)\n"
+                            "Coordinates: 18.5204° N, 73.8567° E\n"
+                            "Thermal Radiation (FRP): 65.0 MW (Elevated Active Fire)\n"
+                            "Satellite Sensor: NASA Terra/Aqua MODIS\n"
+                            "Status: IMMEDIATE VERIFICATION REQUIRED\n"
+                            "\n"
+                            "A high-resolution optical satellite snapshot with hotspot crosshairs\n"
+                            "has been attached to this email.\n"
+                            "========================================================\n"
+                        )
+                        res = smtp.send_notification(
+                            recipient=receiver_mail,
+                            subject="🔥 [FIREWATCH EMERGENCY] Active Satellite Fire Warning Detected!",
+                            message_body=test_body,
+                            payload_data={"latitude": 18.5204, "longitude": 73.8567},
+                            image_path=test_img
+                        )
+                        if res.success and res.status == "delivered":
+                            st.success(f"✓ {res.provider_response} Check the inbox of {receiver_mail} now!")
+                        else:
+                            st.error(f"Dispatch failed: {res.error or res.provider_response}")
+
+        with col_t2:
+            if st.button("🔔 Trigger Desktop Screen Fire Alarm"):
+                import subprocess
+                subprocess.Popen([
+                    "powershell", "-Command",
+                    "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); [System.Windows.Forms.MessageBox]::Show('FIREWATCH AI WARNING: Satellite Thermal Anomaly Detected! Coordinates: 18.52N, 73.85E. Alert dispatched to mjdp8086@gmail.com.', 'FireWatch AI Emergency Alarm', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)"
+                ])
+                st.success("Desktop fire alarm popup triggered on screen!")
 
     st.markdown("---")
 
@@ -741,8 +826,13 @@ def render_autonomous_pipeline(settings: AppSettings, db: DatabaseManager):
         max_alerts = st.number_input("Max Emergency Alerts to Generate:", min_value=1, max_value=10, value=3)
 
     if st.button("🚀 Run Autonomous Satellite Fire Scan & Dispatch", type="primary", use_container_width=True):
+        active_pwd = st.session_state.get("user_app_password", settings.notifications.smtp_password)
+        if active_pwd and active_pwd.strip() != "":
+            settings.notifications.smtp_password = active_pwd.strip().replace(" ", "")
+            settings.notifications.simulation_mode = False
+
         engine = AutonomousFireEngine(settings, db)
-        with st.spinner("Autonomous Satellite Engine Running: Fetching satellite data, detecting fires, downloading imagery, and routing alerts..."):
+        with st.spinner("Autonomous Satellite Engine Running: Ingesting satellite stream, detecting fires, downloading imagery, and routing alerts..."):
             result = engine.run_autonomous_scan(
                 source_feed=feed_option[0],
                 priority_threshold=threshold,
