@@ -209,11 +209,13 @@ def build_emergency_detection_map(
         overlay=False
     ).add_to(m)
 
-    # CartoDB Positron base layer
-    folium.TileLayer(_carto_tiles(), attr=CARTO_ATTRIBUTION,
-                     name="CARTO Positron", overlay=False,
-                     max_zoom=MAP_MAX_ZOOM,
-                     max_native_zoom=CARTO_MAX_NATIVE_ZOOM).add_to(m)
+    # Humanitarian OpenStreetMap base layer
+    folium.TileLayer(
+        tiles="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
+        attr="OpenStreetMap HOT",
+        name="Humanitarian Detail Map",
+        overlay=False
+    ).add_to(m)
 
     # 1. SATELLITE ACQUISITION FRAME BOUNDING BOX (Approx 1 km x 1 km sensor pixel)
     d_lat = 0.009
