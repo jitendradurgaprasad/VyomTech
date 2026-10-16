@@ -137,6 +137,17 @@ class DatabaseManager:
                 now_str = datetime.utcnow().strftime("%Y-%m-%d")
                 test_authorities = [
                     (
+                        "auth_emergency_unit",
+                        "Regional Emergency Fire Response Unit",
+                        "Immediate Fire & Thermal Triage Jurisdiction",
+                        "All Regions / Nearest Emergency Unit",
+                        "email",
+                        "mjdp8086@gmail.com",
+                        1,
+                        now_str,
+                        1
+                    ),
+                    (
                         "auth_central_queue",
                         "Central Satellite Fire Review Desk (SIMULATION)",
                         "Central National Triage Queue / Jurisdiction unknown",

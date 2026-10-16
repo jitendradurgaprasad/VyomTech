@@ -154,3 +154,20 @@
   - Built comprehensive `README.md` with system architecture diagrams, formula breakdowns, installation steps, and troubleshooting.
   - Added `LICENSE` (MIT).
   - Added `run.bat` Windows one-click batch launcher in project root with automatic Python detection, dependency checks, `.env` initialization, and dashboard startup.
+
+---
+
+## Phase 11: Autonomous Satellite Fire Engine, Optical Imagery Snapshots & Email Dispatch
+- **Status**: Completed
+- **Actions**:
+  - Implemented `firewatch/data/imagery.py`:
+    - Automatically fetches high-resolution optical satellite snapshots for detected fire coordinates from satellite tile services.
+    - Annotates satellite imagery with thermal hotspot crosshairs and coordinate/FRP telemetry.
+  - Implemented `firewatch/automation.py`:
+    - Fully autonomous pipeline: streams NASA FIRMS active fire telemetry, detects fires above configurable threshold, generates annotated optical satellite snapshots, and dispatches location-aware emergency alerts.
+  - Configured Sender & Emergency Authority:
+    - Default sender email: `mjdp4317@gmail.com`
+    - Default emergency response unit email: `mjdp8086@gmail.com`
+    - SMTP provider upgraded to support HTML formatting and embedded/attached satellite image snapshots.
+  - Built dedicated UI view: "⚡ Autonomous Fire Monitor" in `firewatch/ui/views.py` and `app.py`.
+  - Added automated test suite `tests/test_automation.py` (2 tests). Full test suite now passes with 28/28 tests.

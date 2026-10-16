@@ -30,6 +30,7 @@ data/raw/*
 data/downloads/*
 data/cache/*
 data/archives/*
+data/snapshots/*
 !data/sample/*
 
 # Logs

@@ -169,7 +169,8 @@ class NotificationManager:
         self,
         obs: ObservationNormalized,
         trigger_reason: str = "Priority threshold exceeded",
-        force: bool = False
+        force: bool = False,
+        recipient_override: Optional[str] = None
     ) -> NotificationResult:
         """
         Evaluate and dispatch (or simulate) a notification for an observation.
@@ -184,12 +185,30 @@ class NotificationManager:
                 error="Duplicate notification prevented by cooldown policy."
             )
 
+        from firewatch.data.imagery import SatelliteImageryManager
+        img_path = SatelliteImageryManager.fetch_satellite_snapshot(
+            lat=obs.latitude,
+            lon=obs.longitude,
+            obs_id=obs.id,
+            frp=obs.frp,
+            confidence_pct=obs.confidence_normalized * 100
+        )
+
         alert_id = f"alert_{uuid.uuid4().hex[:10]}"
         authority = self.route_authority_for_observation(obs)
         channel = authority.get("channel", "simulation")
-        recipient = authority.get("contact_details", "internal-queue@firewatch.sim")
+        
+        # Determine recipient: override > emergency_receiver_email > authority contact
+        recipient = (
+            recipient_override or
+            getattr(self.config, "emergency_receiver_email", None) or
+            authority.get("contact_details", "mjdp8086@gmail.com")
+        )
 
         subject, message, payload = self.construct_notification_payload(obs, authority, trigger_reason, alert_id)
+        if img_path:
+            payload["satellite_image_path"] = img_path
+
         provider = self.get_provider_for_channel(channel)
 
         # Dispatch
@@ -197,7 +216,8 @@ class NotificationManager:
             recipient=recipient,
             subject=subject,
             message_body=message,
-            payload_data=payload
+            payload_data=payload,
+            image_path=img_path
         )
 
         # Log into audit table

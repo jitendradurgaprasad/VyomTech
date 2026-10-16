@@ -195,7 +195,8 @@ pytest -v
 ```
 
 ### Verification Results:
-All 26 tests pass deterministically across 7 test suites:
+All 28 tests pass deterministically across 8 test suites:
+- `tests/test_automation.py` (2 tests): Autonomous fire pipeline, satellite optical snapshot generation, email dispatch routing.
 - `tests/test_validator.py` (9 tests): CSV structure, coordinate bounds, date/time parsing, missing fields, duplicates, synthetic edge cases.
 - `tests/test_priority.py` (4 tests): Score determinism, missing FRP fallback, threshold tiers, configurable weights.
 - `tests/test_clustering.py` (3 tests): Haversine distance, DBSCAN spatial grouping, cluster metrics preservation.
@@ -210,6 +211,7 @@ All 26 tests pass deterministically across 7 test suites:
 
 | View | Purpose |
 | :--- | :--- |
+| **⚡ Autonomous Fire Monitor** | One-click autonomous monitor: Ingests NASA satellite stream, detects active fires, generates optical satellite image snapshots with crosshair overlays, and automatically routes/dispatches alerts to the nearest emergency authority email (`mjdp8086@gmail.com`). |
 | **System Overview** | High-level operational metrics (total observations, high-priority counts, pending reviews, simulated alerts), live disclaimer, and distribution charts. |
 | **Data Ingestion & Import** | Load built-in genuine MODIS/VIIRS samples, fetch live NASA FIRMS feeds, upload custom CSVs, or run synthetic edge cases. |
 | **Interactive Map & Table** | Folium interactive geospatial map with priority-colored circle markers, detailed telemetry popups, cluster layer toggle, and synchronized filterable table. |

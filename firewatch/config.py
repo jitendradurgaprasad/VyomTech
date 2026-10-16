@@ -32,11 +32,12 @@ class ClusteringConfig(BaseModel):
 class NotificationConfig(BaseModel):
     """Notification settings and provider routing."""
     simulation_mode: bool = Field(True, description="When True, prevents sending real communications")
-    smtp_server: Optional[str] = None
+    smtp_server: Optional[str] = "smtp.gmail.com"
     smtp_port: int = 587
-    smtp_username: Optional[str] = None
+    smtp_username: Optional[str] = "mjdp4317@gmail.com"
     smtp_password: Optional[str] = None
-    smtp_from_email: Optional[str] = "alerts@firewatch.ai"
+    smtp_from_email: Optional[str] = "mjdp4317@gmail.com"
+    emergency_receiver_email: Optional[str] = "mjdp8086@gmail.com"
     webhook_url: Optional[str] = None
     webhook_secret: Optional[str] = None
     max_retries: int = 3
@@ -90,11 +91,12 @@ def load_settings() -> AppSettings:
 
     notification_cfg = NotificationConfig(
         simulation_mode=sim_mode,
-        smtp_server=os.getenv("SMTP_SERVER"),
+        smtp_server=os.getenv("SMTP_SERVER", "smtp.gmail.com"),
         smtp_port=int(os.getenv("SMTP_PORT", "587")),
-        smtp_username=os.getenv("SMTP_USERNAME"),
+        smtp_username=os.getenv("SMTP_USERNAME", "mjdp4317@gmail.com"),
         smtp_password=os.getenv("SMTP_PASSWORD"),
-        smtp_from_email=os.getenv("SMTP_FROM_EMAIL", "alerts@firewatch.ai"),
+        smtp_from_email=os.getenv("SMTP_FROM_EMAIL", "mjdp4317@gmail.com"),
+        emergency_receiver_email=os.getenv("EMERGENCY_RECEIVER_EMAIL", "mjdp8086@gmail.com"),
         webhook_url=os.getenv("WEBHOOK_ALERT_URL"),
         webhook_secret=os.getenv("WEBHOOK_SECRET")
     )

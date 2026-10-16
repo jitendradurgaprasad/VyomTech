@@ -691,3 +691,102 @@ def render_settings_about(settings: AppSettings):
         "Operated under NASA Open Data Policy (public domain / open for scientific and commercial use). "
         "https://firms.modaps.eosdis.nasa.gov/"
     )
+
+
+# ==============================================================================
+# VIEW 12: AUTONOMOUS SATELLITE FIRE SCANNER & LIVE DISPATCH
+# ==============================================================================
+def render_autonomous_pipeline(settings: AppSettings, db: DatabaseManager):
+    from firewatch.automation import AutonomousFireEngine
+
+    st.subheader("⚡ Autonomous Satellite Fire Monitor & Auto-Dispatch")
+    
+    st.info(
+        "**Fully Automated Pipeline**: Directly downloads satellite observations from NASA FIRMS, "
+        "identifies thermal fire anomalies, acquires optical satellite imagery snapshots with coordinate overlays, "
+        "and automatically dispatches emergency alerts to the configured authority email."
+    )
+
+    # Config overview cards
+    col_c1, col_c2, col_c3 = st.columns(3)
+    sender_mail = settings.notifications.smtp_from_email or "mjdp4317@gmail.com"
+    receiver_mail = settings.notifications.emergency_receiver_email or "mjdp8086@gmail.com"
+
+    col_c1.metric("Configured Sender", sender_mail)
+    col_c2.metric("Emergency Responder", receiver_mail)
+    col_c3.metric(
+        "Dispatch Mode",
+        "SIMULATION MODE" if settings.notifications.simulation_mode else "LIVE DISPATCH",
+        delta="Safe Sandbox" if settings.notifications.simulation_mode else "Active SMTP"
+    )
+
+    st.markdown("---")
+
+    col_opt1, col_opt2, col_opt3 = st.columns(3)
+    with col_opt1:
+        feed_option = st.selectbox(
+            "Satellite Observation Stream:",
+            [
+                ("modis_south_asia_24h", "NASA MODIS South Asia (Past 24h)"),
+                ("viirs_south_asia_24h", "NASA VIIRS South Asia (Past 24h)"),
+                ("modis_global_24h", "NASA MODIS Global (Past 24h)"),
+                ("viirs_global_24h", "NASA VIIRS Global (Past 24h)")
+            ],
+            format_func=lambda x: x[1]
+        )
+    with col_opt2:
+        threshold = st.slider("Triage Score Threshold (Fire Detection):", 0.30, 0.90, 0.45, 0.05)
+    with col_opt3:
+        max_alerts = st.number_input("Max Emergency Alerts to Generate:", min_value=1, max_value=10, value=3)
+
+    if st.button("🚀 Run Autonomous Satellite Fire Scan & Dispatch", type="primary", use_container_width=True):
+        engine = AutonomousFireEngine(settings, db)
+        with st.spinner("Autonomous Satellite Engine Running: Fetching satellite data, detecting fires, downloading imagery, and routing alerts..."):
+            result = engine.run_autonomous_scan(
+                source_feed=feed_option[0],
+                priority_threshold=threshold,
+                max_dispatches=int(max_alerts),
+                force_dispatch=True
+            )
+
+            # Update observations session state
+            if "all_observations" in result:
+                st.session_state["observations"] = result["all_observations"]
+
+            st.session_state["last_auto_result"] = result
+
+    # Display Last Execution Results
+    auto_res = st.session_state.get("last_auto_result", None)
+    if auto_res:
+        st.markdown("### Execution Log & Pipeline Telemetry")
+        st.code("\n".join(auto_res.get("logs", [])))
+
+        dispatches = auto_res.get("dispatches", [])
+        if dispatches:
+            st.markdown(f"### 🔥 Active Fire Detections & Satellite Imagery ({len(dispatches)} Processed)")
+
+            for idx, item in enumerate(dispatches, 1):
+                with st.container():
+                    st.markdown(f"#### Alert #{idx}: Fire Hotspot `{item['observation_id']}`")
+                    c_img, c_info = st.columns([1, 2])
+                    
+                    with c_img:
+                        if item.get("image_path") and os.path.exists(item["image_path"]):
+                            st.image(item["image_path"], caption=f"Satellite Optical Snapshot (Hotspot {item['observation_id']})", use_container_width=True)
+                        else:
+                            st.caption("Satellite imagery snapshot rendering...")
+
+                    with c_info:
+                        st.markdown(f"- **Coordinates:** `{item['latitude']:.4f}, {item['longitude']:.4f}`")
+                        st.markdown(f"- **Assigned Region:** {item.get('region', 'Identified Region')}")
+                        st.markdown(f"- **Triage Priority:** `{item['priority_level']}` (Score: `{item['priority_score']:.4f}`)")
+                        st.markdown(f"- **Thermal Intensity (FRP):** `{item.get('frp', 'N/A')} MW`")
+                        st.markdown(f"- **Sender Email:** `{item['sender']}`")
+                        st.markdown(f"- **Recipient Emergency Unit:** `{item['recipient']}`")
+                        st.markdown(f"- **Delivery Status:** `{item['status'].upper()}`")
+                        st.info(f"**Provider Response:** {item['response']}")
+
+                    st.markdown("---")
+        else:
+            st.success("Satellite scan completed: No active thermal fires exceeded the detection threshold in this stream.")
+

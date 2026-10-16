@@ -24,7 +24,8 @@ from firewatch.ui.views import (
     render_notification_centre,
     render_validation_report,
     render_evaluation_testing,
-    render_settings_about
+    render_settings_about,
+    render_autonomous_pipeline
 )
 
 st.set_page_config(
@@ -71,6 +72,7 @@ with st.sidebar:
     st.markdown("---")
     
     nav_options = [
+        "⚡ Autonomous Fire Monitor",
         "System Overview",
         "Data Ingestion & Import",
         "Interactive Map & Table",
@@ -84,7 +86,7 @@ with st.sidebar:
         "Settings & About"
     ]
     
-    current_nav = st.session_state.get("nav_selection", "System Overview")
+    current_nav = st.session_state.get("nav_selection", "⚡ Autonomous Fire Monitor")
     default_index = nav_options.index(current_nav) if current_nav in nav_options else 0
 
     selected_nav = st.radio("Navigation", nav_options, index=default_index)
@@ -94,16 +96,19 @@ with st.sidebar:
     st.markdown("### Operational Status")
     st.success("Database: Connected (SQLite)")
     if settings.notifications.simulation_mode:
-        st.info("Mode: SIMULATION ONLY\n(Real dispatch disabled)")
+        st.info("Mode: SIMULATION ONLY\n(Safe sandbox dispatch)")
     else:
-        st.warning("Mode: LIVE DISPATCH (Authorized)")
+        st.warning("Mode: LIVE DISPATCH (Active)")
 
-    st.caption(f"Active Observations: {len(observations)}")
-    st.caption("NASA FIRMS NRT Data Stream")
+    st.caption(f"Sender: {settings.notifications.smtp_from_email or 'mjdp4317@gmail.com'}")
+    st.caption(f"Authority: {settings.notifications.emergency_receiver_email or 'mjdp8086@gmail.com'}")
+    st.caption(f"Active Detections: {len(observations)}")
 
 
 # Dispatch Views
-if selected_nav == "System Overview":
+if selected_nav == "⚡ Autonomous Fire Monitor":
+    render_autonomous_pipeline(settings, db)
+elif selected_nav == "System Overview":
     render_overview(observations, db, settings)
 elif selected_nav == "Data Ingestion & Import":
     render_data_ingestion(db, settings)
