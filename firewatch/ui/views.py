@@ -723,32 +723,63 @@ def render_autonomous_pipeline(settings: AppSettings, db: DatabaseManager):
     )
 
     # Live Alert Dispatch Configuration Drawer
-    with st.expander("⚙️ Live Alert Credentials & Mobile Dispatch (Email / SMS / WhatsApp)", expanded=not has_pwd):
-        st.markdown("#### Live Gmail & Mobile Alert Credentials")
-        st.caption(
-            "To send genuine emails from `mjdp4317@gmail.com` to `mjdp8086@gmail.com`, Google requires a free 16-character **App Password** "
-            "(Google blocks direct password logins for third-party scripts). Generate one in 30 seconds at: "
-            "[https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)"
+    with st.expander("⚙️ Live Alert Credentials & Multi-Channel Dispatch (Gmail / WhatsApp / SMS / Push)", expanded=not has_pwd):
+        st.markdown("#### Live Emergency Alert Channels")
+        st.info(
+            "💡 **Emergency Notification Dispatch Channels:**\n"
+            "- **Option 1 (100% Direct Gmail Delivery):** Enter a 16-character Google App Password for `mjdp4317@gmail.com`. "
+            "Python connects directly to `smtp.gmail.com:587` and delivers real emails with the satellite snapshot attached straight to `mjdp8086@gmail.com`.\n"
+            "- **Option 2 (Instant WhatsApp / SMS):** Use the direct 1-click links below for `9705447958` and `7793956633`.\n"
+            "- **Option 3 (Live Instant Push Stream):** Open **[https://ntfy.sh/vyom_firewatch_alerts_mjdp](https://ntfy.sh/vyom_firewatch_alerts_mjdp)** in any browser or phone to receive instant emergency fire push alerts without any sign-up or tokens!"
         )
 
         col_g1, col_g2 = st.columns(2)
         with col_g1:
             entered_pwd = st.text_input(
-                "Gmail 16-Character App Password:",
+                "Gmail 16-Character App Password (for mjdp4317@gmail.com):",
                 type="password",
                 value=st.session_state.get("user_app_password", os.getenv("SMTP_PASSWORD", "")),
                 placeholder="xxxx xxxx xxxx xxxx",
-                help="16-character password generated from Google Security App Passwords"
+                help="Generate in 30 seconds at: https://myaccount.google.com/apppasswords"
             )
-            if entered_pwd:
-                st.session_state["user_app_password"] = entered_pwd.strip().replace(" ", "")
-                settings.notifications.smtp_password = entered_pwd.strip().replace(" ", "")
+            if entered_pwd and entered_pwd.strip() != "":
+                clean_pwd = entered_pwd.strip().replace(" ", "")
+                st.session_state["user_app_password"] = clean_pwd
+                settings.notifications.smtp_password = clean_pwd
                 settings.notifications.simulation_mode = False
+                
+                # Persist to .env
+                env_file = os.path.join(os.getcwd(), ".env")
+                if os.path.exists(env_file):
+                    try:
+                        with open(env_file, "r", encoding="utf-8") as f:
+                            lines = f.readlines()
+                        updated = False
+                        new_lines = []
+                        for line in lines:
+                            if line.startswith("SMTP_PASSWORD="):
+                                new_lines.append(f"SMTP_PASSWORD={clean_pwd}\n")
+                                updated = True
+                            else:
+                                new_lines.append(line)
+                        if not updated:
+                            new_lines.append(f"SMTP_PASSWORD={clean_pwd}\n")
+                        with open(env_file, "w", encoding="utf-8") as f:
+                            f.writelines(new_lines)
+                    except Exception:
+                        pass
+
+            st.caption("👉 Generate your 16-character App Password at: [Google App Passwords](https://myaccount.google.com/apppasswords)")
 
         with col_g2:
             mobile_nums = st.text_input(
                 "Emergency Mobile Numbers (for SMS / WhatsApp):",
                 value="9705447958, 7793956633"
+            )
+            st.link_button(
+                "🔔 Open Live Web Push Stream (ntfy.sh)",
+                "https://ntfy.sh/vyom_firewatch_alerts_mjdp",
+                use_container_width=True
             )
 
         col_t1, col_t2 = st.columns(2)
@@ -756,7 +787,20 @@ def render_autonomous_pipeline(settings: AppSettings, db: DatabaseManager):
             if st.button("✉️ Send Live Test Fire Alert Email to mjdp8086@gmail.com"):
                 active_pwd = st.session_state.get("user_app_password", settings.notifications.smtp_password)
                 if not active_pwd or active_pwd.strip() == "" or "example" in active_pwd:
-                    st.error("Please enter your 16-character Gmail App Password above to send a real email.")
+                    st.warning("⚠️ No Gmail App Password entered yet. To send a real email via Gmail SMTP, generate a 16-letter App Password at https://myaccount.google.com/apppasswords and paste it above.")
+                    with st.spinner("Attempting fallback dispatch via FormSubmit gateway..."):
+                        from firewatch.notifications.providers import FormSubmitNotificationProvider
+                        fsp = FormSubmitNotificationProvider()
+                        res = fsp.send_notification(
+                            recipient=receiver_mail,
+                            subject="🔥 [FIREWATCH TEST] Active Satellite Fire Warning",
+                            message_body="Test alert from FireWatch AI. Please check your inbox.",
+                            payload_data={"latitude": 23.7644, "longitude": 86.4052, "frp": 12.64}
+                        )
+                        if res.success:
+                            st.success(f"✓ {res.provider_response}")
+                        else:
+                            st.error(f"{res.provider_response}\nDetail: {res.error}")
                 else:
                     with st.spinner("Connecting to smtp.gmail.com:587 and dispatching test alert with satellite snapshot..."):
                         from firewatch.notifications.providers import SmtpNotificationProvider
@@ -894,20 +938,46 @@ def render_autonomous_pipeline(settings: AppSettings, db: DatabaseManager):
                             st.link_button("📲 Send WhatsApp to 7793956633", wa_url_2, use_container_width=True)
                             st.link_button("💬 Send SMS to 7793956633", sms_url_2, use_container_width=True)
 
-                        if st.button(f"✉️ Re-send Direct Email Alert to {item['recipient']}", key=f"resend_{item['observation_id']}"):
-                            from firewatch.notifications.providers import FormSubmitNotificationProvider
-                            fsp = FormSubmitNotificationProvider()
-                            res_fs = fsp.send_notification(
-                                recipient=item['recipient'],
-                                subject=f"🔥 [EMERGENCY ALERT] Active Satellite Fire at {item['latitude']:.4f}N, {item['longitude']:.4f}E",
-                                message_body=wa_msg,
-                                payload_data=item,
-                                image_path=item.get("image_path")
-                            )
-                            if res_fs.success:
-                                st.success(f"✓ {res_fs.provider_response}")
-                            else:
-                                st.error(f"Error: {res_fs.error}")
+                        col_res1, col_res2 = st.columns(2)
+                        with col_res1:
+                            if st.button(f"✉️ Re-send Direct Email Alert to {item['recipient']}", key=f"resend_{item['observation_id']}"):
+                                active_pwd = st.session_state.get("user_app_password", settings.notifications.smtp_password)
+                                if active_pwd and active_pwd.strip() != "" and "example" not in active_pwd:
+                                    from firewatch.notifications.providers import SmtpNotificationProvider
+                                    smtp = SmtpNotificationProvider(
+                                        host="smtp.gmail.com",
+                                        port=587,
+                                        username=item['sender'],
+                                        password=active_pwd,
+                                        from_email=item['sender']
+                                    )
+                                    res_email = smtp.send_notification(
+                                        recipient=item['recipient'],
+                                        subject=f"🔥 [EMERGENCY ALERT] Active Satellite Fire at {item['latitude']:.4f}N, {item['longitude']:.4f}E",
+                                        message_body=wa_msg,
+                                        payload_data=item,
+                                        image_path=item.get("image_path")
+                                    )
+                                    if res_email.success:
+                                        st.success(f"✓ {res_email.provider_response}")
+                                    else:
+                                        st.error(f"Error: {res_email.error}")
+                                else:
+                                    from firewatch.notifications.providers import FormSubmitNotificationProvider
+                                    fsp = FormSubmitNotificationProvider()
+                                    res_fs = fsp.send_notification(
+                                        recipient=item['recipient'],
+                                        subject=f"🔥 [EMERGENCY ALERT] Active Satellite Fire at {item['latitude']:.4f}N, {item['longitude']:.4f}E",
+                                        message_body=wa_msg,
+                                        payload_data=item,
+                                        image_path=item.get("image_path")
+                                    )
+                                    if res_fs.success:
+                                        st.success(f"✓ {res_fs.provider_response}")
+                                    else:
+                                        st.warning(f"{res_fs.provider_response}\n(Tip: Enter your 16-character Gmail App Password above for direct SMTP delivery)")
+                        with col_res2:
+                            st.link_button("🔔 View Alert on Live Push Feed", "https://ntfy.sh/vyom_firewatch_alerts_mjdp", use_container_width=True)
 
                     st.markdown("---")
         else:

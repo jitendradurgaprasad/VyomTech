@@ -319,6 +319,74 @@ class SmsWhatsappNotificationProvider(BaseNotificationProvider):
         )
 
 
+class NtfyNotificationProvider(BaseNotificationProvider):
+    """
+    Zero-configuration instant push notification provider using ntfy.sh.
+    Requires no account, no token, and no confirmation links.
+    Subscribers can view alerts in browser at https://ntfy.sh/{topic} or via the ntfy mobile app.
+    """
+
+    def __init__(self, topic: str = "vyom_firewatch_alerts_mjdp", timeout: int = 10):
+        self.topic = topic
+        self.timeout = timeout
+
+    def send_notification(
+        self,
+        recipient: str,
+        subject: str,
+        message_body: str,
+        payload_data: Dict[str, Any],
+        image_path: Optional[str] = None
+    ) -> NotificationResult:
+        url = f"https://ntfy.sh/{self.topic}"
+        headers = {
+            "Title": subject[:100],
+            "Priority": "urgent",
+            "Tags": "warning,fire,satellite"
+        }
+        if payload_data.get("osm_link"):
+            headers["Click"] = payload_data["osm_link"]
+
+        short_summary = (
+            f"🔥 ACTIVE SATELLITE FIRE ALERT!\n"
+            f"Obs ID: {payload_data.get('observation_id', 'Unknown')}\n"
+            f"Coordinates: {payload_data.get('latitude', '')} N, {payload_data.get('longitude', '')} E\n"
+            f"FRP Intensity: {payload_data.get('frp', 'N/A')} MW\n"
+            f"Target ERS: mjdp8086@gmail.com | +91-9705447958"
+        )
+
+        try:
+            r = requests.post(
+                url,
+                data=short_summary.encode("utf-8"),
+                headers=headers,
+                timeout=self.timeout
+            )
+            if r.status_code == 200:
+                return NotificationResult(
+                    success=True,
+                    status="delivered",
+                    provider_response=f"NTFY_PUSH_DELIVERED: Instant emergency push broadcast to https://ntfy.sh/{self.topic}.",
+                    image_path=image_path
+                )
+            else:
+                return NotificationResult(
+                    success=False,
+                    status="failed",
+                    provider_response=f"NTFY_HTTP_{r.status_code}",
+                    error=r.text,
+                    image_path=image_path
+                )
+        except Exception as e:
+            return NotificationResult(
+                success=False,
+                status="failed",
+                provider_response="NTFY_CONNECTION_ERROR",
+                error=str(e),
+                image_path=image_path
+            )
+
+
 class FormSubmitNotificationProvider(BaseNotificationProvider):
     """
     Direct web-based email dispatcher using FormSubmit.
@@ -338,12 +406,16 @@ class FormSubmitNotificationProvider(BaseNotificationProvider):
     ) -> NotificationResult:
         url = f"https://formsubmit.co/ajax/{recipient.strip()}"
         headers = {
-            "Referer": "https://firewatch-ai.org",
-            "Origin": "https://firewatch-ai.org",
-            "User-Agent": "FireWatch-AI-Emergency/1.0"
+            "Referer": "https://firewatch-ai.streamlit.app/",
+            "Origin": "https://firewatch-ai.streamlit.app",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json"
         }
         
         post_data = {
+            "name": "FireWatch AI Automated Dispatch",
+            "email": "mjdp4317@gmail.com",
+            "_subject": subject,
             "ALERT": "🔥 FIREWATCH AI - ACTIVE SATELLITE FIRE WARNING",
             "TARGET_RECIPIENT": recipient,
             "COORDINATES": f"{payload_data.get('latitude', '')} N, {payload_data.get('longitude', '')} E",
@@ -353,7 +425,6 @@ class FormSubmitNotificationProvider(BaseNotificationProvider):
             "MAP_LINK": payload_data.get("osm_link", ""),
             "SATELLITE_IMAGE": f"Snapshot: {os.path.basename(image_path)}" if image_path else "Telemetry Attached",
             "MESSAGE_DETAILS": message_body,
-            "_subject": subject,
             "_replyto": "mjdp4317@gmail.com",
             "_captcha": "false"
         }
@@ -362,18 +433,21 @@ class FormSubmitNotificationProvider(BaseNotificationProvider):
             r = requests.post(url, json=post_data, headers=headers, timeout=self.timeout)
             if r.status_code == 200:
                 res_json = r.json()
-                if res_json.get("success") == "true" or "success" in res_json:
+                is_success = str(res_json.get("success", "")).lower() == "true"
+                if is_success:
                     return NotificationResult(
                         success=True,
                         status="delivered",
-                        provider_response=f"DELIVERED_SUCCESS: Emergency Fire Warning sent directly to {recipient} via FormSubmit gateway.",
+                        provider_response=f"DELIVERED_SUCCESS: Emergency Fire Warning delivered directly to {recipient} via FormSubmit gateway.",
                         image_path=image_path
                     )
                 else:
+                    msg_txt = res_json.get("message", "Form needs activation")
                     return NotificationResult(
-                        success=True,
-                        status="delivered_needs_activation",
-                        provider_response=f"CONFIRMATION_SENT: Email sent to {recipient}! Please click 'Activate Form' once in your inbox to enable unblocked delivery.",
+                        success=False,
+                        status="activation_required",
+                        provider_response=f"ACTIVATION_PENDING: FormSubmit requires 1-time email confirmation. Check the newest email in {recipient} and click 'Activate Form'.",
+                        error=msg_txt,
                         image_path=image_path
                     )
             else:

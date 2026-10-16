@@ -213,13 +213,19 @@ class NotificationManager:
             authority.get("contact_details", "mjdp8086@gmail.com")
         )
 
+        if not self.config.simulation_mode:
+            if "@" in recipient and "." in recipient:
+                channel = "email"
+            elif any(c.isdigit() for c in recipient) and len(recipient) >= 10:
+                channel = "whatsapp"
+
         subject, message, payload = self.construct_notification_payload(obs, authority, trigger_reason, alert_id)
         if img_path:
             payload["satellite_image_path"] = img_path
 
         provider = self.get_provider_for_channel(channel)
 
-        # Dispatch
+        # Dispatch primary channel
         result = provider.send_notification(
             recipient=recipient,
             subject=subject,
@@ -227,6 +233,21 @@ class NotificationManager:
             payload_data=payload,
             image_path=img_path
         )
+
+        # Also broadcast to instant live push stream (ntfy.sh) so responder gets alert immediately
+        if not self.config.simulation_mode:
+            try:
+                from firewatch.notifications.providers import NtfyNotificationProvider
+                ntfy = NtfyNotificationProvider()
+                ntfy.send_notification(
+                    recipient="https://ntfy.sh/vyom_firewatch_alerts_mjdp",
+                    subject=subject,
+                    message_body=message,
+                    payload_data=payload,
+                    image_path=img_path
+                )
+            except Exception:
+                pass
 
         # Log into audit table
         self.db.log_notification(
