@@ -362,6 +362,52 @@ class DatabaseManager:
                 )
             return result
 
+    def get_recent_observations(self, limit: int = 20) -> List[ObservationNormalized]:
+        """Fetch most recent observations sorted by priority_score descending."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM observations 
+                ORDER BY priority_score DESC, acq_datetime DESC 
+                LIMIT ?
+            """, (limit,))
+            rows = cursor.fetchall()
+            result = []
+            for r in rows:
+                result.append(
+                    ObservationNormalized(
+                        id=r["id"],
+                        latitude=r["latitude"],
+                        longitude=r["longitude"],
+                        acq_date=r["acq_date"],
+                        acq_time=r["acq_time"],
+                        acq_datetime=r["acq_datetime"],
+                        satellite=r["satellite"],
+                        instrument=r["instrument"],
+                        confidence_raw=r["confidence_raw"],
+                        confidence_normalized=r["confidence_normalized"],
+                        confidence_category=r["confidence_category"],
+                        brightness_kelvin=r["brightness_kelvin"],
+                        bright_secondary=r["bright_secondary"],
+                        frp=r["frp"],
+                        daynight=r["daynight"],
+                        scan=r["scan"],
+                        track=r["track"],
+                        source_product=r["source_product"],
+                        priority_score=r["priority_score"],
+                        priority_level=r["priority_level"],
+                        priority_reasons=json.loads(r["priority_reasons"]) if r["priority_reasons"] else [],
+                        priority_limitations=json.loads(r["priority_limitations"]) if r["priority_limitations"] else [],
+                        cluster_id=r["cluster_id"],
+                        cluster_size=r["cluster_size"],
+                        repeat_detection_count=r["repeat_detection_count"],
+                        jurisdiction=r["jurisdiction"],
+                        administrative_region=r["administrative_region"],
+                        raw_data=json.loads(r["raw_data_json"]) if r["raw_data_json"] else {}
+                    )
+                )
+            return result
+
     def get_observation_by_id(self, obs_id: str) -> Optional[ObservationNormalized]:
         """Fetch single observation by ID."""
         with self.get_connection() as conn:
