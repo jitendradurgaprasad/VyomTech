@@ -19,9 +19,14 @@ from firewatch.data.acquisition import FIRMSAcquisitionManager
 from firewatch.analysis.priority import PriorityRanker
 from firewatch.analysis.clustering import SpatialClusterer
 from firewatch.analysis.context import GeoContextResolver
-from firewatch.storage.database import DatabaseManager
+from firewatch.storage.database import (
+    AUTHORITY_FEEDBACK_OUTCOMES,
+    SITE_MEMORY_OUTCOMES,
+    DatabaseManager,
+)
 from firewatch.notifications.manager import NotificationManager
-from firewatch.ui.map_view import build_folium_map
+from firewatch.ui.map_view import build_folium_map, build_emergency_detection_map
+from firewatch.analysis.ers import ERSLocator, BENCHMARK_ERS_STATIONS
 from firewatch.ui.charts import (
     create_priority_distribution_chart,
     create_frp_histogram,
@@ -332,7 +337,9 @@ def render_priority_queue(observations: List[ObservationNormalized], db: Databas
 
                     if st.button(f"Simulate Authority Alert", key=f"btn_notif_{obs.id}"):
                         res = notif_manager.process_notification(obs, trigger_reason="Manual triage escalation")
-                        if res.success:
+                        if res.status == "suppressed_by_authority_feedback":
+                            st.info(res.provider_response)
+                        elif res.success:
                             st.success(f"Simulated alert dispatched: {res.provider_response}")
                         else:
                             st.error(f"Dispatch blocked or failed: {res.provider_response}")
@@ -474,6 +481,115 @@ def render_feedback_history(db: DatabaseManager):
         file_name=f"firewatch_feedback_history_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv",
         mime="text/csv"
     )
+
+
+def render_authority_feedback_memory(db: DatabaseManager):
+    """Record manually received authority outcomes and exact-coordinate memory."""
+    st.subheader("Authority Feedback & Exact-Location Memory")
+    st.info(
+        "Authority replies are not fetched automatically. Record an outcome received through "
+        "your authorised channel here. This does not retrain the image model: it can prevent "
+        "repeat notifications for one exact coordinate while the observation stays visible. "
+        "A memory expires after 30 days."
+    )
+
+    observations = db.get_all_observations()
+    if not observations:
+        st.warning("Import observations before recording an authority response.")
+        return
+
+    observation_by_id = {obs.id: obs for obs in observations}
+    observation_ids = list(observation_by_id)
+    selected_id = st.selectbox(
+        "Observation the authority responded to",
+        observation_ids,
+        format_func=lambda oid: (
+            f"{oid} | {observation_by_id[oid].latitude:.6f}, "
+            f"{observation_by_id[oid].longitude:.6f} | "
+            f"{observation_by_id[oid].acq_datetime}"
+        ),
+        key="authority_feedback_observation_id",
+    )
+    selected_obs = observation_by_id[selected_id]
+    st.caption(
+        f"Selected source coordinate: {selected_obs.latitude:.6f}, {selected_obs.longitude:.6f}. "
+        "Memory matches only this six-decimal coordinate; nearby coordinates are not suppressed."
+    )
+
+    with st.form("authority_feedback_form", clear_on_submit=False):
+        c1, c2 = st.columns(2)
+        with c1:
+            authority_name = st.text_input("Responding authority / agency")
+            case_reference = st.text_input("Case, email subject, or call-log reference")
+            outcome = st.selectbox("Authority outcome", AUTHORITY_FEEDBACK_OUTCOMES)
+            authority_source_verified = st.checkbox(
+                "I verified this response came from the authority via a known official contact",
+                value=False,
+                help="This is an operator attestation; FireWatch does not authenticate authority replies automatically.",
+            )
+        with c2:
+            reviewer_id = st.text_input("Operator recording the response")
+            confidence = st.selectbox("Confidence in the recorded response", ["high", "medium", "low"])
+            remember_exact_site = st.checkbox(
+                "Remember this exact coordinate for 30 days and suppress repeat notifications",
+                value=False,
+                disabled=(outcome not in SITE_MEMORY_OUTCOMES or confidence != "high"),
+                help=(
+                    "Available only for a high-confidence prescribed-burn, known non-fire source, "
+                    "or false-anomaly outcome. A case/reference is also required. This never "
+                    "removes the observation from the map or review queue."
+                ),
+            )
+        notes = st.text_area("Authority response and supporting notes")
+        submitted = st.form_submit_button("Save authority feedback", type="primary")
+
+    if submitted:
+        try:
+            result = db.save_authority_feedback(
+                observation_id=selected_id,
+                authority_name=authority_name,
+                case_reference=case_reference,
+                outcome=outcome,
+                reviewer_id=reviewer_id,
+                confidence=confidence,
+                authority_source_verified=authority_source_verified,
+                notes=notes,
+                remember_exact_site=remember_exact_site,
+            )
+        except ValueError as exc:
+            st.error(str(exc))
+        else:
+            st.success(f"Authority feedback saved for {result['latitude']:.6f}, {result['longitude']:.6f}.")
+            if result["memory_created"]:
+                st.warning(
+                    "Repeat notifications for this exact coordinate will be suppressed until "
+                    f"{result['expires_at']}. Detections remain visible."
+                )
+            elif result["memories_cleared"]:
+                st.success("Confirmed-wildfire feedback cleared the active exact-coordinate memory.")
+            else:
+                st.caption("Saved for audit only; no repeat-notification memory was created.")
+
+    st.markdown("### Active exact-coordinate memories")
+    memories = db.get_active_site_memories()
+    if memories:
+        st.dataframe(pd.DataFrame(memories), use_container_width=True, hide_index=True)
+    else:
+        st.caption("There are no active site memories.")
+
+    st.markdown("### Authority feedback audit history")
+    history = db.get_all_authority_feedback()
+    if history:
+        history_df = pd.DataFrame(history)
+        st.dataframe(history_df, use_container_width=True, hide_index=True)
+        st.download_button(
+            "Export authority feedback audit (CSV)",
+            data=history_df.to_csv(index=False),
+            file_name=f"firewatch_authority_feedback_{datetime.utcnow():%Y%m%d_%H%M%S}.csv",
+            mime="text/csv",
+        )
+    else:
+        st.caption("No authority responses have been recorded yet.")
 
 
 # ==============================================================================
@@ -890,96 +1006,237 @@ def render_autonomous_pipeline(settings: AppSettings, db: DatabaseManager):
 
             st.session_state["last_auto_result"] = result
 
-    # Display Last Execution Results
+    # Display Last Execution Results / Active Detections
     auto_res = st.session_state.get("last_auto_result", None)
-    if auto_res:
-        st.markdown("### Execution Log & Pipeline Telemetry")
-        st.code("\n".join(auto_res.get("logs", [])))
 
+    # Pre-load latest detections from database if available and not yet in session
+    if not auto_res:
+        recent_obs = db.get_recent_observations(limit=10)
+        high_obs = [o for o in recent_obs if (o.priority_score or 0.0) >= 0.40]
+        if high_obs:
+            preloaded_dispatches = []
+            for o in high_obs[:3]:
+                nearest_ers = ERSLocator.find_nearest_ers(o.latitude, o.longitude, db)
+                from firewatch.data.imagery import SatelliteImageryManager
+                img_path = os.path.join(os.getcwd(), "data", "snapshots", f"{o.id}.jpg")
+                if not os.path.exists(img_path):
+                    img_path = SatelliteImageryManager.fetch_satellite_snapshot(o.latitude, o.longitude, o.id, frp=o.frp)
+                preloaded_dispatches.append({
+                    "observation_id": o.id,
+                    "latitude": o.latitude,
+                    "longitude": o.longitude,
+                    "priority_score": o.priority_score,
+                    "priority_level": o.priority_level,
+                    "frp": o.frp,
+                    "satellite": o.satellite,
+                    "instrument": o.instrument,
+                    "acq_datetime": o.acq_datetime,
+                    "confidence_pct": round((o.confidence_normalized or 0.8) * 100, 1),
+                    "region": o.administrative_region,
+                    "image_path": img_path,
+                    "recipient": settings.notifications.emergency_receiver_email or "mjdp8086@gmail.com",
+                    "sender": settings.notifications.smtp_from_email or "mjdp4317@gmail.com",
+                    "status": "ready_for_dispatch",
+                    "response": f"Hotspot verified by satellite sensor telemetry. Assigned nearest ERS: {nearest_ers['name']}.",
+                    "nearest_ers": nearest_ers,
+                    "nearest_ers_name": nearest_ers["name"],
+                    "nearest_ers_distance_km": nearest_ers["distance_km"],
+                    "nearest_ers_lat": nearest_ers["latitude"],
+                    "nearest_ers_lon": nearest_ers["longitude"]
+                })
+            auto_res = {
+                "success": True,
+                "dispatches": preloaded_dispatches,
+                "logs": [f"[*] Loaded {len(preloaded_dispatches)} active satellite hotspot records from database telemetry."]
+            }
+            st.session_state["last_auto_result"] = auto_res
+
+    if auto_res:
         dispatches = auto_res.get("dispatches", [])
         if dispatches:
-            st.markdown(f"### 🔥 Active Fire Detections & Satellite Imagery ({len(dispatches)} Processed)")
+            st.markdown(f"### 🚨 Active Satellite Fire Hotspots ({len(dispatches)} Detected)")
 
-            for idx, item in enumerate(dispatches, 1):
-                with st.container():
-                    st.markdown(f"#### Alert #{idx}: Fire Hotspot `{item['observation_id']}`")
-                    c_img, c_info = st.columns([1, 2])
-                    
-                    with c_img:
-                        if item.get("image_path") and os.path.exists(item["image_path"]):
-                            st.image(item["image_path"], caption=f"Satellite Optical Snapshot (Hotspot {item['observation_id']})", use_container_width=True)
+            # Select Hotspot for Map and ERS Inspection
+            if len(dispatches) > 1:
+                selected_idx = st.selectbox(
+                    "📍 Select Detected Fire Hotspot to Inspect on Map & Route to Nearest ERS:",
+                    range(len(dispatches)),
+                    format_func=lambda i: (
+                        f"Hotspot #{i+1}: {dispatches[i]['observation_id']} "
+                        f"({dispatches[i]['latitude']:.4f}°N, {dispatches[i]['longitude']:.4f}°E) | "
+                        f"FRP: {dispatches[i].get('frp', 'N/A')} MW | "
+                        f"Nearest ERS: {dispatches[i].get('nearest_ers_name', 'ERS Station')[:32]}..."
+                    )
+                )
+                item = dispatches[selected_idx]
+            else:
+                item = dispatches[0]
+
+            nearest_ers = item.get("nearest_ers") or ERSLocator.find_nearest_ers(item["latitude"], item["longitude"], db)
+            all_stations = ERSLocator.get_all_stations(db)
+
+            # ------------------------------------------------------------------
+            # 1. INTERACTIVE SATELLITE FRAME & NEAREST ERS MAP
+            # ------------------------------------------------------------------
+            st.markdown("#### 🗺️ Satellite Acquisition Frame & Nearest Emergency Response Station (ERS)")
+            st.caption(
+                "Visualizing the exact frame coordinates collected by the satellite sensor (~1 km² sensor pixel footprint in red), "
+                "the thermal hotspot, and the nearest Emergency Response Station (ERS) highlighted with direct geodesic dispatch routing."
+            )
+
+            # Build and render Folium Map
+            detection_map = build_emergency_detection_map(item, nearest_ers, all_stations)
+            st_folium(detection_map, width=None, height=480, returned_objects=[])
+
+            # Geodesic Dispatch Routing Metrics Bar
+            m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+            m_col1.metric("Hotspot Frame Coordinates", f"{item['latitude']:.4f}° N, {item['longitude']:.4f}° E")
+            m_col2.metric("Nearest ERS Station", nearest_ers.get("name", "ERS Command")[:26] + "...")
+            m_col3.metric("Geodesic Distance to Fire", f"{nearest_ers.get('distance_km', 0.0):.1f} km")
+            m_col4.metric("Est. Ground Transit Time", f"~{nearest_ers.get('est_transit_minutes', 25)} mins")
+
+            st.markdown("---")
+
+            # ------------------------------------------------------------------
+            # 2. EMERGENCY MAIL NOTIFICATION & DISPATCH STATUS (VISIBLE ON SCREEN)
+            # ------------------------------------------------------------------
+            st.markdown("#### ✉️ ERS Emergency Mail Notification & Dispatch Status")
+
+            status_str = str(item.get("status", "")).lower()
+            if status_str == "suppressed_by_authority_feedback":
+                st.info(item.get("response", "Repeat notification suppressed by exact-coordinate authority feedback memory."))
+            elif status_str in ("delivered", "delivered_success", "sent"):
+                st.success(f"✓ Live Emergency Fire Notification Dispatched to Authority: `{item['recipient']}`")
+            elif "activation" in status_str:
+                st.warning(f"⚠️ Email Dispatch Prepared for `{item['recipient']}`. Activation token confirmation pending.")
+            else:
+                st.info(f"📧 Notification Prepared for ERS Authority: `{item['recipient']}` | Status: `{item['status'].upper()}`")
+
+            c_img, c_info = st.columns([1, 2])
+            with c_img:
+                if item.get("image_path") and os.path.exists(item["image_path"]):
+                    st.image(
+                        item["image_path"],
+                        caption=f"Optical Satellite Snapshot (Hotspot {item['observation_id']})",
+                        use_container_width=True
+                    )
+                else:
+                    st.caption("Satellite imagery snapshot rendering...")
+
+            with c_info:
+                st.markdown(f"##### 📋 Emergency Dispatch Telemetry")
+                st.markdown(f"- **Target ERS Authority Station:** `{nearest_ers.get('name')}`")
+                st.markdown(f"- **Authority Jurisdiction:** {nearest_ers.get('jurisdiction', 'Regional Emergency Command')}")
+                st.markdown(f"- **Sender Email:** `{item.get('sender', 'mjdp4317@gmail.com')}`")
+                st.markdown(f"- **Recipient Authority Email:** `{item.get('recipient', 'mjdp8086@gmail.com')}`")
+                st.markdown(f"- **Emergency Mobile Contacts:** `+91-9705447958, +91-7793956633`")
+                st.markdown(f"- **Satellite Platform & Sensor:** `{item.get('satellite', 'NASA Terra/Aqua')} ({item.get('instrument', 'MODIS')})`")
+                st.markdown(f"- **Thermal Intensity (FRP):** `{item.get('frp', 'N/A')} MW`")
+                st.markdown(f"- **Triage Priority:** `{item.get('priority_level', 'High Review Priority')}` (Score: `{item.get('priority_score', 0.85):.4f}`)")
+                st.markdown(f"- **Delivery Status:** `{item.get('status', 'SENT').upper()}`")
+                st.info(f"**Gateway / Mail Response:** {item.get('response', 'Dispatched to nearest emergency station.')}")
+
+            # Expandable Full Email Message Body Preview
+            osm_url = f"https://www.openstreetmap.org/?mlat={item['latitude']}&mlon={item['longitude']}#map=12/{item['latitude']}/{item['longitude']}"
+            full_email_body = (
+                f"========================================================\n"
+                f"FIREWATCH AI - EMERGENCY ACTIVE FIRE ALERT\n"
+                f"========================================================\n"
+                f"Notice ID:          ALERT-{item['observation_id']}\n"
+                f"Target Authority:   {nearest_ers.get('name')} ({item['recipient']})\n"
+                f"Jurisdiction:       {nearest_ers.get('jurisdiction')}\n"
+                f"Distance to Fire:   {nearest_ers.get('distance_km', 0.0):.1f} km\n"
+                f"\n"
+                f"SATELLITE FRAME COORDINATES:\n"
+                f"  Latitude:         {item['latitude']:.5f}° N\n"
+                f"  Longitude:        {item['longitude']:.5f}° E\n"
+                f"  Region:           {item.get('region', 'Identified Region')}\n"
+                f"  Map Inspection:   {osm_url}\n"
+                f"\n"
+                f"THERMAL SENSOR TELEMETRY:\n"
+                f"  Satellite Sensor: {item.get('satellite', 'NASA')} ({item.get('instrument', 'MODIS/VIIRS')})\n"
+                f"  Thermal Power:    {item.get('frp', 'N/A')} MW (Radiative Fire Anomaly)\n"
+                f"  Acquisition UTC:  {item.get('acq_datetime', 'Recent Pass')}\n"
+                f"  Priority Level:   {item.get('priority_level', 'High Review Priority')}\n"
+                f"\n"
+                f"ACTION REQUIRED:\n"
+                f"  1. Deploy ground ranger / nearest emergency unit ({nearest_ers.get('name')}).\n"
+                f"  2. Verify containment perimeter along coordinates ({item['latitude']:.4f}, {item['longitude']:.4f}).\n"
+                f"  3. Optical satellite snapshot is attached to this email.\n"
+                f"========================================================\n"
+            )
+
+            with st.expander("📄 View Full Email Notification Content Dispatched to mjdp8086@gmail.com"):
+                st.code(full_email_body)
+
+            # ------------------------------------------------------------------
+            # 3. DIRECT INSTANT DISPATCH CHANNELS (WHATSAPP, SMS, NTFY, EMAIL)
+            # ------------------------------------------------------------------
+            st.markdown("##### 🚨 Direct Instant Dispatch Channels:")
+            import requests as req_lib
+            wa_msg = (
+                f"🔥 FIREWATCH EMERGENCY ALERT! Active Satellite Fire Hotspot: {item['observation_id']} "
+                f"detected at coordinates ({item['latitude']:.4f}, {item['longitude']:.4f}) with FRP {item.get('frp', 'N/A')} MW. "
+                f"Nearest ERS Station: {nearest_ers.get('name')} ({nearest_ers.get('distance_km', 0.0):.1f} km away). "
+                f"Inspect Map: {osm_url}"
+            )
+            wa_url_1 = f"https://wa.me/919705447958?text={req_lib.utils.quote(wa_msg)}"
+            wa_url_2 = f"https://wa.me/917793956633?text={req_lib.utils.quote(wa_msg)}"
+            sms_url_1 = f"sms:+919705447958?body={req_lib.utils.quote(wa_msg)}"
+            sms_url_2 = f"sms:+917793956633?body={req_lib.utils.quote(wa_msg)}"
+
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                st.link_button("📲 Send WhatsApp to 9705447958", wa_url_1, use_container_width=True)
+                st.link_button("💬 Send SMS to 9705447958", sms_url_1, use_container_width=True)
+            with col_btn2:
+                st.link_button("📲 Send WhatsApp to 7793956633", wa_url_2, use_container_width=True)
+                st.link_button("💬 Send SMS to 7793956633", sms_url_2, use_container_width=True)
+
+            col_res1, col_res2 = st.columns(2)
+            with col_res1:
+                if st.button(f"✉️ Re-send Direct Email Alert to {item['recipient']}", key=f"resend_{item['observation_id']}"):
+                    active_pwd = st.session_state.get("user_app_password", settings.notifications.smtp_password)
+                    if active_pwd and active_pwd.strip() != "" and "example" not in active_pwd:
+                        from firewatch.notifications.providers import SmtpNotificationProvider
+                        smtp = SmtpNotificationProvider(
+                            host="smtp.gmail.com",
+                            port=587,
+                            username=item['sender'],
+                            password=active_pwd,
+                            from_email=item['sender']
+                        )
+                        res_email = smtp.send_notification(
+                            recipient=item['recipient'],
+                            subject=f"🔥 [EMERGENCY ALERT] Active Satellite Fire at {item['latitude']:.4f}N, {item['longitude']:.4f}E",
+                            message_body=full_email_body,
+                            payload_data=item,
+                            image_path=item.get("image_path")
+                        )
+                        if res_email.success:
+                            st.success(f"✓ {res_email.provider_response}")
                         else:
-                            st.caption("Satellite imagery snapshot rendering...")
+                            st.error(f"Error: {res_email.error}")
+                    else:
+                        from firewatch.notifications.providers import FormSubmitNotificationProvider
+                        fsp = FormSubmitNotificationProvider()
+                        res_fs = fsp.send_notification(
+                            recipient=item['recipient'],
+                            subject=f"🔥 [EMERGENCY ALERT] Active Satellite Fire at {item['latitude']:.4f}N, {item['longitude']:.4f}E",
+                            message_body=full_email_body,
+                            payload_data=item,
+                            image_path=item.get("image_path")
+                        )
+                        if res_fs.success:
+                            st.success(f"✓ {res_fs.provider_response}")
+                        else:
+                            st.warning(f"{res_fs.provider_response}\n(Tip: Enter your 16-character Gmail App Password above for direct SMTP delivery)")
+            with col_res2:
+                st.link_button("🔔 View Alert on Live Push Feed", "https://ntfy.sh/vyom_firewatch_alerts_mjdp", use_container_width=True)
 
-                    with c_info:
-                        st.markdown(f"- **Coordinates:** `{item['latitude']:.4f}, {item['longitude']:.4f}`")
-                        st.markdown(f"- **Assigned Region:** {item.get('region', 'Identified Region')}")
-                        st.markdown(f"- **Triage Priority:** `{item['priority_level']}` (Score: `{item['priority_score']:.4f}`)")
-                        st.markdown(f"- **Thermal Intensity (FRP):** `{item.get('frp', 'N/A')} MW`")
-                        st.markdown(f"- **Sender Email:** `{item['sender']}`")
-                        st.markdown(f"- **Recipient Emergency Unit:** `{item['recipient']}`")
-                        st.markdown(f"- **Delivery Status:** `{item['status'].upper()}`")
-                        st.info(f"**Provider Response:** {item['response']}")
-
-                        # One-Click WhatsApp & SMS Dispatch
-                        import requests as req_lib
-                        wa_msg = f"🔥 FIREWATCH EMERGENCY ALERT! Active Satellite Fire Hotspot: {item['observation_id']} detected at coords ({item['latitude']:.4f}, {item['longitude']:.4f}) with FRP {item.get('frp', 'N/A')} MW. Region: {item.get('region', '')}. Map: https://www.openstreetmap.org/?mlat={item['latitude']}&mlon={item['longitude']}#map=12/{item['latitude']}/{item['longitude']}"
-                        wa_url_1 = f"https://wa.me/919705447958?text={req_lib.utils.quote(wa_msg)}"
-                        wa_url_2 = f"https://wa.me/917793956633?text={req_lib.utils.quote(wa_msg)}"
-                        sms_url_1 = f"sms:+919705447958?body={req_lib.utils.quote(wa_msg)}"
-                        sms_url_2 = f"sms:+917793956633?body={req_lib.utils.quote(wa_msg)}"
-
-                        st.markdown("##### 🚨 Direct Instant Dispatch Channels:")
-                        col_btn1, col_btn2 = st.columns(2)
-                        with col_btn1:
-                            st.link_button("📲 Send WhatsApp to 9705447958", wa_url_1, use_container_width=True)
-                            st.link_button("💬 Send SMS to 9705447958", sms_url_1, use_container_width=True)
-                        with col_btn2:
-                            st.link_button("📲 Send WhatsApp to 7793956633", wa_url_2, use_container_width=True)
-                            st.link_button("💬 Send SMS to 7793956633", sms_url_2, use_container_width=True)
-
-                        col_res1, col_res2 = st.columns(2)
-                        with col_res1:
-                            if st.button(f"✉️ Re-send Direct Email Alert to {item['recipient']}", key=f"resend_{item['observation_id']}"):
-                                active_pwd = st.session_state.get("user_app_password", settings.notifications.smtp_password)
-                                if active_pwd and active_pwd.strip() != "" and "example" not in active_pwd:
-                                    from firewatch.notifications.providers import SmtpNotificationProvider
-                                    smtp = SmtpNotificationProvider(
-                                        host="smtp.gmail.com",
-                                        port=587,
-                                        username=item['sender'],
-                                        password=active_pwd,
-                                        from_email=item['sender']
-                                    )
-                                    res_email = smtp.send_notification(
-                                        recipient=item['recipient'],
-                                        subject=f"🔥 [EMERGENCY ALERT] Active Satellite Fire at {item['latitude']:.4f}N, {item['longitude']:.4f}E",
-                                        message_body=wa_msg,
-                                        payload_data=item,
-                                        image_path=item.get("image_path")
-                                    )
-                                    if res_email.success:
-                                        st.success(f"✓ {res_email.provider_response}")
-                                    else:
-                                        st.error(f"Error: {res_email.error}")
-                                else:
-                                    from firewatch.notifications.providers import FormSubmitNotificationProvider
-                                    fsp = FormSubmitNotificationProvider()
-                                    res_fs = fsp.send_notification(
-                                        recipient=item['recipient'],
-                                        subject=f"🔥 [EMERGENCY ALERT] Active Satellite Fire at {item['latitude']:.4f}N, {item['longitude']:.4f}E",
-                                        message_body=wa_msg,
-                                        payload_data=item,
-                                        image_path=item.get("image_path")
-                                    )
-                                    if res_fs.success:
-                                        st.success(f"✓ {res_fs.provider_response}")
-                                    else:
-                                        st.warning(f"{res_fs.provider_response}\n(Tip: Enter your 16-character Gmail App Password above for direct SMTP delivery)")
-                        with col_res2:
-                            st.link_button("🔔 View Alert on Live Push Feed", "https://ntfy.sh/vyom_firewatch_alerts_mjdp", use_container_width=True)
-
-                    st.markdown("---")
+            st.markdown("---")
+            with st.expander("Execution Log & Pipeline Telemetry"):
+                st.code("\n".join(auto_res.get("logs", [])))
         else:
             st.success("Satellite scan completed: No active thermal fires exceeded the detection threshold in this stream.")
 

@@ -113,6 +113,11 @@ class AutonomousFireEngine:
             if img_path:
                 logs.append(f"    -> Satellite optical snapshot acquired: {img_path}")
 
+            # Locate Nearest Emergency Response Station (ERS)
+            from firewatch.analysis.ers import ERSLocator
+            nearest_ers = ERSLocator.find_nearest_ers(fire.latitude, fire.longitude, self.db)
+            logs.append(f"    -> Geodesic Routing: Nearest ERS '{nearest_ers['name']}' located at {nearest_ers['distance_km']} km.")
+
             # Process location-aware notification
             trigger_reason = f"Autonomous Fire Detection Trigger: Score {fire.priority_score:.4f} (FRP: {fire.frp} MW)"
             notif_res = self.notif_manager.process_notification(
@@ -131,12 +136,21 @@ class AutonomousFireEngine:
                 "priority_score": fire.priority_score,
                 "priority_level": fire.priority_level,
                 "frp": fire.frp,
+                "satellite": fire.satellite,
+                "instrument": fire.instrument,
+                "acq_datetime": fire.acq_datetime,
+                "confidence_pct": round(fire.confidence_normalized * 100, 1),
                 "region": fire.administrative_region,
                 "image_path": img_path,
                 "recipient": receiver_email,
                 "sender": sender_email,
                 "status": notif_res.status,
-                "response": notif_res.provider_response
+                "response": notif_res.provider_response,
+                "nearest_ers": nearest_ers,
+                "nearest_ers_name": nearest_ers["name"],
+                "nearest_ers_distance_km": nearest_ers["distance_km"],
+                "nearest_ers_lat": nearest_ers["latitude"],
+                "nearest_ers_lon": nearest_ers["longitude"]
             })
 
         logs.append(f"[✓] Autonomous Fire Monitoring pass completed. Total alerts processed: {len(dispatches)}.")

@@ -171,3 +171,12 @@
     - SMTP provider upgraded to support HTML formatting and embedded/attached satellite image snapshots.
   - Built dedicated UI view: "⚡ Autonomous Fire Monitor" in `firewatch/ui/views.py` and `app.py`.
   - Added automated test suite `tests/test_automation.py` (2 tests). Full test suite now passes with 28/28 tests.
+
+## Phase 12: Authority Outcome Feedback & Exact-Coordinate Repeat-Notification Memory
+- **Status**: Implemented; requires application restart to load.
+- **Actions**:
+  - Added an **Authority Feedback & Site Memory** dashboard page for operators to record authority name, case/reference, outcome, confidence, source-verification attestation, and notes.
+  - Added append-only SQLite authority-feedback records and 30-day exact-coordinate memories. Only high-confidence, operator-verified non-wildfire outcomes with a case/reference can create a memory.
+  - Added notification-path suppression for a matching six-decimal coordinate. Suppression is logged, does not remove the observation from the map/review queue, and is not bypassed by forced dispatch. High-confidence verified confirmed-wildfire feedback clears active memory at that coordinate.
+  - Clarified that authority responses are entered manually; no authority email inbox/API integration or model-weight training was added.
+  - No tests were added or run in this phase.

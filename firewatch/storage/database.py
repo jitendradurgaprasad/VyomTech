@@ -7,9 +7,29 @@ import json
 import os
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any, Tuple
 from firewatch.data.schemas import ObservationNormalized
+
+
+AUTHORITY_FEEDBACK_OUTCOMES = (
+    "Confirmed wildfire",
+    "Authorized/prescribed burn",
+    "Known non-fire thermal source",
+    "False satellite anomaly",
+    "Unresolved / unable to verify",
+)
+SITE_MEMORY_OUTCOMES = frozenset({
+    "Authorized/prescribed burn",
+    "Known non-fire thermal source",
+    "False satellite anomaly",
+})
+SITE_MEMORY_DAYS = 30
+
+
+def exact_site_key(latitude: float, longitude: float) -> str:
+    """Key an exact reported coordinate, without a geographic suppression radius."""
+    return f"{float(latitude):.6f},{float(longitude):.6f}"
 
 
 class DatabaseManager:
@@ -121,6 +141,47 @@ class DatabaseManager:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_obs_cluster ON observations(cluster_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_obs ON reviews(observation_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_notif_obs ON notification_audit(observation_id)")
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS authority_feedback (
+                    id TEXT PRIMARY KEY,
+                    observation_id TEXT NOT NULL,
+                    latitude REAL NOT NULL,
+                    longitude REAL NOT NULL,
+                    authority_name TEXT NOT NULL,
+                    case_reference TEXT NOT NULL,
+                    source_verified INTEGER NOT NULL DEFAULT 0,
+                    outcome TEXT NOT NULL,
+                    reviewer_id TEXT NOT NULL,
+                    confidence TEXT NOT NULL,
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (observation_id) REFERENCES observations(id)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS site_feedback_memory (
+                    id TEXT PRIMARY KEY,
+                    feedback_id TEXT NOT NULL UNIQUE,
+                    observation_id TEXT NOT NULL,
+                    coordinate_key TEXT NOT NULL,
+                    latitude REAL NOT NULL,
+                    longitude REAL NOT NULL,
+                    outcome TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    deactivated_at TEXT,
+                    deactivated_by_feedback_id TEXT,
+                    FOREIGN KEY (feedback_id) REFERENCES authority_feedback(id),
+                    FOREIGN KEY (observation_id) REFERENCES observations(id)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_site_memory_coordinate ON site_feedback_memory(coordinate_key, active, expires_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_authority_feedback_observation ON authority_feedback(observation_id, created_at)")
+            feedback_columns = {row[1] for row in cursor.execute("PRAGMA table_info(authority_feedback)").fetchall()}
+            if "source_verified" not in feedback_columns:
+                cursor.execute("ALTER TABLE authority_feedback ADD COLUMN source_verified INTEGER NOT NULL DEFAULT 0")
             
             conn.commit()
 
@@ -420,6 +481,153 @@ class DatabaseManager:
             """)
             rows = cursor.fetchall()
             return [dict(r) for r in rows]
+
+    # ------------------ AUTHORITY OUTCOMES & EXACT-SITE MEMORY ------------------
+
+    def save_authority_feedback(
+        self,
+        *,
+        observation_id: str,
+        authority_name: str,
+        case_reference: str,
+        outcome: str,
+        reviewer_id: str,
+        confidence: str,
+        authority_source_verified: bool = False,
+        notes: Optional[str] = None,
+        remember_exact_site: bool = False,
+    ) -> Dict[str, Any]:
+        """Append an authority outcome and optionally remember one exact coordinate.
+
+        A repeat-notification memory is only allowed for high-confidence,
+        case-referenced non-wildfire outcomes. It never hides observations and
+        expires after SITE_MEMORY_DAYS. A confirmed wildfire clears active
+        memory at the same six-decimal coordinate.
+        """
+        authority_name = authority_name.strip()
+        case_reference = case_reference.strip()
+        reviewer_id = reviewer_id.strip()
+        confidence = confidence.strip().lower()
+        if outcome not in AUTHORITY_FEEDBACK_OUTCOMES:
+            raise ValueError("Choose a supported authority outcome.")
+        if not authority_name or not case_reference or not reviewer_id:
+            raise ValueError("Authority name, case/reference, and reviewer are required.")
+        if confidence not in {"high", "medium", "low"}:
+            raise ValueError("Confidence must be high, medium, or low.")
+        if remember_exact_site and (
+            outcome not in SITE_MEMORY_OUTCOMES or confidence != "high" or not authority_source_verified
+        ):
+            raise ValueError("Exact-site memory requires a verified authority source and a high-confidence non-wildfire outcome.")
+
+        feedback_id = f"af_{uuid.uuid4().hex[:12]}"
+        memory_id = f"site_{uuid.uuid4().hex[:12]}"
+        created = datetime.utcnow()
+        created_at = created.isoformat(timespec="seconds") + "Z"
+        expires_at = (created.replace(microsecond=0) + timedelta(days=SITE_MEMORY_DAYS)).isoformat() + "Z"
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT latitude, longitude FROM observations WHERE id = ?", (observation_id,))
+            observation_row = cursor.fetchone()
+            if observation_row is None:
+                raise ValueError("The selected observation no longer exists in the database.")
+            latitude, longitude = float(observation_row["latitude"]), float(observation_row["longitude"])
+            coordinate_key = exact_site_key(latitude, longitude)
+
+            cursor.execute("""
+                INSERT INTO authority_feedback (
+                    id, observation_id, latitude, longitude, authority_name, case_reference,
+                    source_verified, outcome, reviewer_id, confidence, notes, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                feedback_id, observation_id, latitude, longitude, authority_name, case_reference,
+                int(authority_source_verified), outcome, reviewer_id, confidence,
+                notes.strip() if notes else None, created_at
+            ))
+
+            cleared = 0
+            if outcome == "Confirmed wildfire" and confidence == "high" and authority_source_verified:
+                cursor.execute("""
+                    UPDATE site_feedback_memory
+                    SET active = 0, deactivated_at = ?, deactivated_by_feedback_id = ?
+                    WHERE coordinate_key = ? AND active = 1
+                """, (created_at, feedback_id, coordinate_key))
+                cleared = cursor.rowcount
+
+            if remember_exact_site:
+                cursor.execute("""
+                    INSERT INTO site_feedback_memory (
+                        id, feedback_id, observation_id, coordinate_key, latitude, longitude,
+                        outcome, created_at, expires_at, active
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                """, (
+                    memory_id, feedback_id, observation_id, coordinate_key, latitude, longitude,
+                    outcome, created_at, expires_at
+                ))
+            conn.commit()
+
+        return {
+            "id": feedback_id,
+            "observation_id": observation_id,
+            "latitude": latitude,
+            "longitude": longitude,
+            "outcome": outcome,
+            "memory_created": remember_exact_site,
+            "memories_cleared": cleared,
+            "expires_at": expires_at if remember_exact_site else None,
+        }
+
+    def get_active_site_memory(self, latitude: float, longitude: float) -> Optional[Dict[str, Any]]:
+        """Return unexpired memory for the exact six-decimal coordinate only."""
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        with self.get_connection() as conn:
+            row = conn.execute("""
+                SELECT m.*, f.authority_name, f.case_reference, f.reviewer_id, f.confidence,
+                       f.notes, f.created_at AS feedback_created_at
+                FROM site_feedback_memory m
+                JOIN authority_feedback f ON f.id = m.feedback_id
+                WHERE m.coordinate_key = ? AND m.active = 1 AND m.expires_at > ?
+                ORDER BY m.created_at DESC LIMIT 1
+            """, (exact_site_key(latitude, longitude), now)).fetchone()
+            return dict(row) if row else None
+
+    def get_active_site_memories(self) -> List[Dict[str, Any]]:
+        """List active, unexpired memories for review in the dashboard."""
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        with self.get_connection() as conn:
+            rows = conn.execute("""
+                SELECT m.*, f.authority_name, f.case_reference, f.reviewer_id,
+                       f.confidence, f.notes
+                FROM site_feedback_memory m
+                JOIN authority_feedback f ON f.id = m.feedback_id
+                WHERE m.active = 1 AND m.expires_at > ?
+                ORDER BY m.created_at DESC
+            """, (now,)).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_all_authority_feedback(self) -> List[Dict[str, Any]]:
+        """Return the append-only authority response audit history."""
+        with self.get_connection() as conn:
+            rows = conn.execute("""
+                SELECT * FROM authority_feedback ORDER BY created_at DESC
+            """).fetchall()
+            return [dict(row) for row in rows]
+
+    def was_recently_suppressed_by_site_memory(self, observation_id: str, window_minutes: int = 60) -> bool:
+        """Avoid writing repeated audit rows for the same suppressed feed record."""
+        with self.get_connection() as conn:
+            row = conn.execute("""
+                SELECT created_at FROM notification_audit
+                WHERE observation_id = ? AND status = 'suppressed_by_authority_feedback'
+                ORDER BY created_at DESC LIMIT 1
+            """, (observation_id,)).fetchone()
+        if not row:
+            return False
+        try:
+            last_time = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            return False
+        return (datetime.utcnow() - last_time).total_seconds() < window_minutes * 60
 
     # ------------------ AUTHORITIES DIRECTORY ------------------
 

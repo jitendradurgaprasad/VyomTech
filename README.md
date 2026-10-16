@@ -217,6 +217,7 @@ All 28 tests pass deterministically across 8 test suites:
 | **Interactive Map & Table** | Folium interactive geospatial map with priority-colored circle markers, detailed telemetry popups, cluster layer toggle, and synchronized filterable table. |
 | **Priority Review Queue** | Triage queue sorted descending by priority score. Displays plain-English explanation rationales and sensor limitations for every detection. |
 | **Observation Details & Review** | Deep-dive telemetry inspection and human feedback form. Records analyst assessment, confidence, notes, and preserves correction history. |
+| **Authority Feedback & Site Memory** | Manually records an authority outcome with its case reference. A verified, high-confidence non-wildfire outcome can suppress repeat notifications for that exact six-decimal coordinate for 30 days; the observation remains visible. |
 | **Global Feedback History** | Global audit log of all analyst assessments across the system, status distributions, and CSV export. |
 | **Authority Directory** | Configurable directory of regional and national emergency review desks. Clearly labels pre-seeded records as `TEST DATA`. |
 | **Notification Centre** | Chronological notification audit log (Queued, Simulated, Provider Accepted, Delivered, Failed) with full JSON payload inspection and CSV export. |
@@ -230,6 +231,11 @@ All 28 tests pass deterministically across 8 test suites:
 
 ```
 [Observation Exceeds Priority (Score >= 0.70) or Escalated]
+                            │
+                            ▼
+           [Exact-Coordinate Feedback Memory]
+             ├── Active matching memory? ──> [Notification skipped; detection stays visible]
+             └── No exact match / expired?
                             │
                             ▼
            [Duplicate Check (60-min Cooldown)]
@@ -254,6 +260,8 @@ All 28 tests pass deterministically across 8 test suites:
   `* NOT A CONFIRMED WILDFIRE OR EMERGENCY DISPATCH EVENT.`
 - **Actionable Verification Steps**: Includes recommended ground checks (meteorological check, land-use cross-reference, ranger dispatch).
 - **Duplicate Protection**: Observations are throttled to prevent notification spam within a configurable 60-minute window.
+- **Authority feedback is manual**: FireWatch has no authority inbox/API integration. Operators record a reply in **Authority Feedback & Site Memory** and attest that its source was checked through a known official contact. The app does not claim to authenticate replies or retrain model weights.
+- **Narrow repeat-notification memory**: Only high-confidence verified responses marked as an authorized/prescribed burn, known non-fire thermal source, or false satellite anomaly may create a memory, and only with a case/reference. It matches the same latitude/longitude rounded to six decimal places (about 0.1 m in latitude), has no geographic radius, expires after 30 days, and suppresses notifications only. Detections remain in the map and review queue. High-confidence verified confirmed-wildfire feedback clears active memory at that exact coordinate.
 
 ---
 

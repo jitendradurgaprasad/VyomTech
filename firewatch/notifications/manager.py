@@ -184,6 +184,38 @@ class NotificationManager:
         Evaluate and dispatch (or simulate) a notification for an observation.
         Includes duplicate throttling check and full audit persistence.
         """
+        site_memory = self.db.get_active_site_memory(obs.latitude, obs.longitude)
+        if site_memory:
+            response = (
+                "Repeat notification not sent: authority feedback marked this exact six-decimal "
+                f"coordinate as '{site_memory['outcome']}' (case {site_memory['case_reference']}); "
+                f"site memory expires {site_memory['expires_at']}. The observation remains visible for review."
+            )
+            if not self.db.was_recently_suppressed_by_site_memory(obs.id):
+                self.db.log_notification(
+                    notif_id=f"supp_{uuid.uuid4().hex[:10]}",
+                    observation_id=obs.id,
+                    authority_id=None,
+                    recipient="exact-site-feedback-memory",
+                    channel="internal",
+                    trigger_reason=trigger_reason,
+                    priority_score=obs.priority_score,
+                    status="suppressed_by_authority_feedback",
+                    provider_response=response,
+                    error_details=None,
+                    payload_summary={
+                        "memory_id": site_memory["id"],
+                        "coordinate_key": site_memory["coordinate_key"],
+                        "feedback_outcome": site_memory["outcome"],
+                        "expires_at": site_memory["expires_at"],
+                    },
+                )
+            return NotificationResult(
+                success=True,
+                status="suppressed_by_authority_feedback",
+                provider_response=response,
+            )
+
         # Duplicate throttle check
         if not force and self.db.is_recently_notified(obs.id, window_minutes=60):
             return NotificationResult(

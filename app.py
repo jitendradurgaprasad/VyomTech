@@ -20,6 +20,7 @@ from firewatch.ui.views import (
     render_priority_queue,
     render_observation_details,
     render_feedback_history,
+    render_authority_feedback_memory,
     render_authority_directory,
     render_notification_centre,
     render_validation_report,
@@ -78,6 +79,7 @@ with st.sidebar:
         "Interactive Map & Table",
         "Priority Review Queue",
         "Observation Details & Review",
+        "Authority Feedback & Site Memory",
         "Global Feedback History",
         "Authority Directory",
         "Notification Centre",
@@ -118,6 +120,8 @@ elif selected_nav == "Priority Review Queue":
     render_priority_queue(observations, db, notif_manager)
 elif selected_nav == "Observation Details & Review":
     render_observation_details(observations, db)
+elif selected_nav == "Authority Feedback & Site Memory":
+    render_authority_feedback_memory(db)
 elif selected_nav == "Global Feedback History":
     render_feedback_history(db)
 elif selected_nav == "Authority Directory":
