@@ -1,0 +1,44 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Configuration and Secrets
+.env
+*.key
+*.pem
+credentials.json
+secrets.toml
+
+# Databases and Persistent Local Records
+*.db
+*.sqlite
+*.sqlite3
+
+# Large Data files and Cache
+data/raw/*
+data/downloads/*
+data/cache/*
+data/archives/*
+!data/sample/*
+
+# Logs
+*.log
+logs/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
