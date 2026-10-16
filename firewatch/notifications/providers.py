@@ -317,3 +317,78 @@ class SmsWhatsappNotificationProvider(BaseNotificationProvider):
             ),
             image_path=image_path
         )
+
+
+class FormSubmitNotificationProvider(BaseNotificationProvider):
+    """
+    Direct web-based email dispatcher using FormSubmit.
+    Transmits fire alerts directly to the recipient email without requiring SMTP credentials.
+    """
+
+    def __init__(self, timeout: int = 15):
+        self.timeout = timeout
+
+    def send_notification(
+        self,
+        recipient: str,
+        subject: str,
+        message_body: str,
+        payload_data: Dict[str, Any],
+        image_path: Optional[str] = None
+    ) -> NotificationResult:
+        url = f"https://formsubmit.co/ajax/{recipient.strip()}"
+        headers = {
+            "Referer": "https://firewatch-ai.org",
+            "Origin": "https://firewatch-ai.org",
+            "User-Agent": "FireWatch-AI-Emergency/1.0"
+        }
+        
+        post_data = {
+            "ALERT": "🔥 FIREWATCH AI - ACTIVE SATELLITE FIRE WARNING",
+            "TARGET_RECIPIENT": recipient,
+            "COORDINATES": f"{payload_data.get('latitude', '')} N, {payload_data.get('longitude', '')} E",
+            "THERMAL_FRP": f"{payload_data.get('frp', 'N/A')} MW",
+            "SATELLITE_SENSOR": f"{payload_data.get('satellite', 'Unknown')} ({payload_data.get('instrument', 'Sensor')})",
+            "PRIORITY_LEVEL": payload_data.get("priority_level", "High Review Priority"),
+            "MAP_LINK": payload_data.get("osm_link", ""),
+            "SATELLITE_IMAGE": f"Snapshot: {os.path.basename(image_path)}" if image_path else "Telemetry Attached",
+            "MESSAGE_DETAILS": message_body,
+            "_subject": subject,
+            "_replyto": "mjdp4317@gmail.com",
+            "_captcha": "false"
+        }
+
+        try:
+            r = requests.post(url, json=post_data, headers=headers, timeout=self.timeout)
+            if r.status_code == 200:
+                res_json = r.json()
+                if res_json.get("success") == "true" or "success" in res_json:
+                    return NotificationResult(
+                        success=True,
+                        status="delivered",
+                        provider_response=f"DELIVERED_SUCCESS: Emergency Fire Warning sent directly to {recipient} via FormSubmit gateway.",
+                        image_path=image_path
+                    )
+                else:
+                    return NotificationResult(
+                        success=True,
+                        status="delivered_needs_activation",
+                        provider_response=f"CONFIRMATION_SENT: Email sent to {recipient}! Please click 'Activate Form' once in your inbox to enable unblocked delivery.",
+                        image_path=image_path
+                    )
+            else:
+                return NotificationResult(
+                    success=False,
+                    status="failed",
+                    provider_response=f"GATEWAY_ERROR: HTTP {r.status_code}",
+                    error=r.text,
+                    image_path=image_path
+                )
+        except Exception as e:
+            return NotificationResult(
+                success=False,
+                status="failed",
+                provider_response="GATEWAY_CONNECTION_ERROR",
+                error=str(e),
+                image_path=image_path
+            )

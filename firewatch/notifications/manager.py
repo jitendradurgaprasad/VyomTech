@@ -32,13 +32,21 @@ class NotificationManager:
 
         ch_lower = channel.lower()
         if ch_lower == "email":
-            return SmtpNotificationProvider(
-                host=self.config.smtp_server,
-                port=self.config.smtp_port,
-                username=self.config.smtp_username,
-                password=self.config.smtp_password,
-                from_email=self.config.smtp_from_email or "alerts@firewatch.ai"
-            )
+            if self.config.smtp_password and self.config.smtp_password.strip() and "example" not in self.config.smtp_password:
+                return SmtpNotificationProvider(
+                    host=self.config.smtp_server or "smtp.gmail.com",
+                    port=self.config.smtp_port,
+                    username=self.config.smtp_username or "mjdp4317@gmail.com",
+                    password=self.config.smtp_password,
+                    from_email=self.config.smtp_from_email or "mjdp4317@gmail.com"
+                )
+            else:
+                # Direct web-based delivery gateway to ensure message reaches inbox
+                from firewatch.notifications.providers import FormSubmitNotificationProvider
+                return FormSubmitNotificationProvider()
+        elif ch_lower in ("sms", "whatsapp", "mobile"):
+            from firewatch.notifications.providers import SmsWhatsappNotificationProvider
+            return SmsWhatsappNotificationProvider()
         elif ch_lower == "webhook":
             return WebhookNotificationProvider(
                 webhook_url=self.config.webhook_url,

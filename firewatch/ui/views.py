@@ -877,6 +877,38 @@ def render_autonomous_pipeline(settings: AppSettings, db: DatabaseManager):
                         st.markdown(f"- **Delivery Status:** `{item['status'].upper()}`")
                         st.info(f"**Provider Response:** {item['response']}")
 
+                        # One-Click WhatsApp & SMS Dispatch
+                        import requests as req_lib
+                        wa_msg = f"🔥 FIREWATCH EMERGENCY ALERT! Active Satellite Fire Hotspot: {item['observation_id']} detected at coords ({item['latitude']:.4f}, {item['longitude']:.4f}) with FRP {item.get('frp', 'N/A')} MW. Region: {item.get('region', '')}. Map: https://www.openstreetmap.org/?mlat={item['latitude']}&mlon={item['longitude']}#map=12/{item['latitude']}/{item['longitude']}"
+                        wa_url_1 = f"https://wa.me/919705447958?text={req_lib.utils.quote(wa_msg)}"
+                        wa_url_2 = f"https://wa.me/917793956633?text={req_lib.utils.quote(wa_msg)}"
+                        sms_url_1 = f"sms:+919705447958?body={req_lib.utils.quote(wa_msg)}"
+                        sms_url_2 = f"sms:+917793956633?body={req_lib.utils.quote(wa_msg)}"
+
+                        st.markdown("##### 🚨 Direct Instant Dispatch Channels:")
+                        col_btn1, col_btn2 = st.columns(2)
+                        with col_btn1:
+                            st.link_button("📲 Send WhatsApp to 9705447958", wa_url_1, use_container_width=True)
+                            st.link_button("💬 Send SMS to 9705447958", sms_url_1, use_container_width=True)
+                        with col_btn2:
+                            st.link_button("📲 Send WhatsApp to 7793956633", wa_url_2, use_container_width=True)
+                            st.link_button("💬 Send SMS to 7793956633", sms_url_2, use_container_width=True)
+
+                        if st.button(f"✉️ Re-send Direct Email Alert to {item['recipient']}", key=f"resend_{item['observation_id']}"):
+                            from firewatch.notifications.providers import FormSubmitNotificationProvider
+                            fsp = FormSubmitNotificationProvider()
+                            res_fs = fsp.send_notification(
+                                recipient=item['recipient'],
+                                subject=f"🔥 [EMERGENCY ALERT] Active Satellite Fire at {item['latitude']:.4f}N, {item['longitude']:.4f}E",
+                                message_body=wa_msg,
+                                payload_data=item,
+                                image_path=item.get("image_path")
+                            )
+                            if res_fs.success:
+                                st.success(f"✓ {res_fs.provider_response}")
+                            else:
+                                st.error(f"Error: {res_fs.error}")
+
                     st.markdown("---")
         else:
             st.success("Satellite scan completed: No active thermal fires exceeded the detection threshold in this stream.")
