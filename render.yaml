@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: vyomtech-firewatch-ai
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: NOTIFICATION_SIMULATION_MODE
+        value: "True"
+      - key: SMTP_FROM_EMAIL
+        value: "mjdp4317@gmail.com"
+      - key: EMERGENCY_RECEIVER_EMAIL
+        value: "mjdp8086@gmail.com"

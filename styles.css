@@ -199,8 +199,6 @@ textarea { min-height: 75px; resize: vertical; }
 .form-field.full { grid-column: 1/-1; }
 .map-card { overflow: hidden; }
 #fire-map { width: 100%; height: 332px; background: #121d25; }
-.satellite-image-map{width:100%;height:min(58vh,460px);margin:12px 0;border:1px solid #30414b;border-radius:8px;background:#121d25}
-.small-value{font-size:16px!important}
 .leaflet-container { font-family: var(--sans); background: #121d25; }
 .leaflet-control-attribution { font-size: 8px !important; }
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { color: #dce5e8; background: #121c24; }
@@ -301,7 +299,7 @@ textarea { min-height: 75px; resize: vertical; }
   .page-heading p { font-size: 11px; }
 }
 
-/* Orbital/radar hero graphic */
+/* Live synthetic simulation and the orbital/radar hero graphic */
 .live-stream-panel{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 240px;align-items:center;gap:18px;min-height:220px;margin:0 0 14px;padding:22px 24px;border:1px solid #25483f;border-radius:10px;overflow:hidden;background:radial-gradient(ellipse at 82% 50%,rgba(40,112,94,.2),transparent 38%),linear-gradient(115deg,#101a20,#111b20 60%,#101d20)}
 .live-stream-panel.is-running{border-color:#347a66;box-shadow:inset 0 0 36px rgba(63,194,154,.06)}
 .live-stream-copy{position:relative;z-index:1}
