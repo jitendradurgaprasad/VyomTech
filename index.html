@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1118">
+  <meta name="description" content="FireWatch AI — synthetic active-fire triage dashboard and labelled-sample evaluation.">
+  <title>FireWatch AI · Active Fire Triage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#overview" aria-label="FireWatch AI home">
+        <span class="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M18.8 2.5c1.2 6-1.3 7.9-4.1 11.1-1.2-2.1-1.2-3.7-.5-5.6C8 12 5.2 17 6.4 22.1 7.5 27 11.5 30 16.2 30c6 0 10-4.1 9.6-9.4-.3-4.6-3.3-7.9-7-10.9.6 3.6-.5 5.4-2 7.1-.2-5.3.7-8.1 2-14.3Z" fill="currentColor"/><path d="M16.2 26.6c-2.3 0-4-1.6-3.9-3.8.1-1.5 1-2.7 2.4-4.3.2 1.7.9 2.8 2.3 4 .6-.9.9-1.7 1-2.7 1.6 1.5 2.2 2.7 2.1 4.1-.1 1.7-1.6 2.7-3.9 2.7Z" fill="#0b1118"/></svg></span>
+        <span class="brand-copy"><b>FIREWATCH</b><small>OBSERVATION TRIAGE</small></span>
+      </a>
+
+      <div class="workspace-label">WORKSPACE</div>
+      <div class="workspace-card"><span class="workspace-dot"></span><span><b>South Asia desk</b><small>Public demo workspace</small></span><span class="chevron">⌄</span></div>
+
+      <nav class="nav" aria-label="Main navigation">
+        <div class="nav-label">MONITOR</div>
+        <button class="nav-item active" data-view="overview"><span class="nav-icon">◫</span>Overview</button>
+        <button class="nav-item" data-view="observations"><span class="nav-icon">◎</span>Observations<span class="nav-count" id="nav-observation-count">—</span></button>
+        <button class="nav-item" data-view="queue"><span class="nav-icon">◷</span>Review queue<span class="nav-count warning" id="nav-queue-count">—</span></button>
+        <div class="nav-label">WORKSPACE</div>
+        <button class="nav-item" data-view="ingest"><span class="nav-icon">⇧</span>Data ingestion</button>
+        <button class="nav-item" data-view="feedback"><span class="nav-icon">☷</span>Reviewed decisions<span class="nav-count" id="nav-reviewed-count">0</span></button>
+        <button class="nav-item" data-view="authorities"><span class="nav-icon">⌖</span>Authority directory</button>
+        <button class="nav-item" data-view="notifications"><span class="nav-icon">♧</span>Notifications<span class="nav-count" id="nav-notification-count">0</span></button>
+        <div class="nav-label">SYSTEM</div>
+        <button class="nav-item" data-view="quality"><span class="nav-icon">▤</span>Data quality</button>
+        <button class="nav-item" data-view="evaluation"><span class="nav-icon">◴</span>Synthetic evaluation</button>
+        <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span>Settings &amp; about</button>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="mode-card"><span class="mode-icon">◉</span><div><b>Simulation mode</b><small>Synthetic red demo emails only</small></div><span class="mode-indicator"></span></div>
+        <div class="profile"><span class="avatar">FW</span><span><b>Jury preview</b><small>Analyst workspace</small></span><button class="profile-more" aria-label="Profile menu">···</button></div>
+      </div>
+    </aside>
+
+    <main class="main-shell">
+      <header class="topbar">
+        <div class="crumb"><button class="mobile-menu" id="mobile-menu" aria-label="Open navigation">☰</button><span>FireWatch</span><span class="crumb-sep">/</span><b id="page-crumb">Overview</b></div>
+        <div class="top-actions"><div class="utc-clock"><span class="live-dot"></span><span id="clock">UTC —</span></div><span class="authority-label" id="authority-label">Authority sign in</span><button class="btn small" id="authority-login" type="button">Sign in</button><button class="icon-btn" id="search-toggle" aria-label="Search">⌕</button><button class="top-avatar" title="Jury preview">FW</button></div>
+      </header>
+      <div class="search-strip hidden" id="search-strip"><span>⌕</span><input id="global-search" type="search" placeholder="Search synthetic scenarios, groups, coordinates…" autocomplete="off"><kbd>ESC</kbd></div>
+      <section class="content" id="content" aria-live="polite"></section>
+      <footer class="app-footer"><span>FIREWATCH AI <span class="footer-sep">·</span> SYNTHETIC FIRE-TRIAGE DEMO</span><span>Synthetic stream · Demo only</span></footer>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+  <div class="modal-backdrop hidden" id="modal-backdrop"><section class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"></section></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="/app.js" defer></script>
+</body>
+</html>
