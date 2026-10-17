@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1118">
-  <meta name="description" content="FireWatch AI — synthetic active-fire triage dashboard and labelled-sample evaluation.">
+  <meta name="description" content="FireWatch AI — NASA FIRMS active-fire observation triage dashboard with satellite imagery and authority review.">
   <title>FireWatch AI · Active Fire Triage</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,13 +35,13 @@
         <button class="nav-item" data-view="notifications"><span class="nav-icon">♧</span>Notifications<span class="nav-count" id="nav-notification-count">0</span></button>
         <div class="nav-label">SYSTEM</div>
         <button class="nav-item" data-view="quality"><span class="nav-icon">▤</span>Data quality</button>
-        <button class="nav-item" data-view="evaluation"><span class="nav-icon">◴</span>Synthetic evaluation</button>
+        <button class="nav-item" data-view="evaluation"><span class="nav-icon">◴</span>Evaluation limits</button>
         <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span>Settings &amp; about</button>
       </nav>
 
       <div class="sidebar-bottom">
-        <div class="mode-card"><span class="mode-icon">◉</span><div><b>Simulation mode</b><small>Synthetic red demo emails only</small></div><span class="mode-indicator"></span></div>
-        <div class="profile"><span class="avatar">FW</span><span><b>Jury preview</b><small>Analyst workspace</small></span><button class="profile-more" aria-label="Profile menu">···</button></div>
+        <div class="mode-card"><span class="mode-icon">◉</span><div><b>NASA FIRMS live data</b><small>Recent VIIRS observations</small></div><span class="mode-indicator"></span></div>
+        <div class="profile"><span class="avatar">FW</span><span><b>Authority workspace</b><small>Observation triage</small></span><button class="profile-more" aria-label="Profile menu">···</button></div>
       </div>
     </aside>
 
@@ -50,9 +50,9 @@
         <div class="crumb"><button class="mobile-menu" id="mobile-menu" aria-label="Open navigation">☰</button><span>FireWatch</span><span class="crumb-sep">/</span><b id="page-crumb">Overview</b></div>
         <div class="top-actions"><div class="utc-clock"><span class="live-dot"></span><span id="clock">UTC —</span></div><span class="authority-label" id="authority-label">Authority sign in</span><button class="btn small" id="authority-login" type="button">Sign in</button><button class="icon-btn" id="search-toggle" aria-label="Search">⌕</button><button class="top-avatar" title="Jury preview">FW</button></div>
       </header>
-      <div class="search-strip hidden" id="search-strip"><span>⌕</span><input id="global-search" type="search" placeholder="Search synthetic scenarios, groups, coordinates…" autocomplete="off"><kbd>ESC</kbd></div>
+      <div class="search-strip hidden" id="search-strip"><span>⌕</span><input id="global-search" type="search" placeholder="Search satellite observations and coordinates…" autocomplete="off"><kbd>ESC</kbd></div>
       <section class="content" id="content" aria-live="polite"></section>
-      <footer class="app-footer"><span>FIREWATCH AI <span class="footer-sep">·</span> SYNTHETIC FIRE-TRIAGE DEMO</span><span>Synthetic stream · Demo only</span></footer>
+      <footer class="app-footer"><span>FIREWATCH AI <span class="footer-sep">·</span> NASA FIRMS OBSERVATION TRIAGE</span><span>NASA FIRMS · NASA GIBS imagery</span></footer>
     </main>
   </div>
 

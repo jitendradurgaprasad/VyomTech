@@ -10,6 +10,6 @@ export default function handler(request, response) {
     version: "3.0.0",
     timestamp: new Date().toISOString(),
     deployment: "vercel-static-dashboard",
-    data_mode: "generated-synthetic-labelled-sample"
+    data_mode: "NASA FIRMS VIIRS SNPP NRT"
   });
 }
