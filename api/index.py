@@ -205,16 +205,33 @@ PORTAL_HTML = """<!DOCTYPE html>
                 emergency response authority routing.
             </p>
             <div class="action-group">
-                <a href="https://github.com/jitendradurgaprasad/VyomTech" class="btn btn-primary" target="_blank">
-                    <span>⚡ View GitHub Repository</span>
+                <a href="https://05192b1f268e6c.lhr.life" class="btn btn-primary" target="_blank">
+                    <span>⚡ Launch Live Laptop Server</span>
+                </a>
+                <a href="https://github.com/jitendradurgaprasad/VyomTech" class="btn btn-secondary" target="_blank">
+                    <span>📁 GitHub Repository</span>
                 </a>
                 <a href="https://ntfy.sh/vyom_firewatch_alerts_mjdp" class="btn btn-secondary" target="_blank">
-                    <span>🔔 Open Live Push Stream</span>
+                    <span>🔔 Live Push Stream</span>
                 </a>
                 <a href="/api/health" class="btn btn-secondary">
-                    <span>🩺 System Health API</span>
+                    <span>🩺 Health API</span>
                 </a>
             </div>
+        </div>
+
+        <!-- Embedded Live Streamlit Dashboard Served by Laptop -->
+        <div style="background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 3rem; overflow: hidden; box-shadow: 0 10px 35px rgba(0,0,0,0.5);">
+            <div style="padding: 1rem 1.5rem; background: #0f172a; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 12px #10b981;"></span>
+                    <b style="font-size: 0.95rem; letter-spacing: 0.02em;">LIVE DASHBOARD (HOSTED ON LOCAL LAPTOP &bull; PORT 8501)</b>
+                </div>
+                <div>
+                    <a href="https://05192b1f268e6c.lhr.life" target="_blank" style="color: #38bdf8; text-decoration: none; font-size: 0.85rem; font-family: monospace; font-weight: 600;">↗ Open Full Screen</a>
+                </div>
+            </div>
+            <iframe src="https://05192b1f268e6c.lhr.life" style="width: 100%; height: 850px; border: none; background: #0e1117;" title="FireWatch AI Streamlit Dashboard"></iframe>
         </div>
 
         <div class="grid">
