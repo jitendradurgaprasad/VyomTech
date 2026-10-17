@@ -29,7 +29,13 @@ echo [✓] Keep this window open to maintain your laptop as the live server!
 echo =====================================================================
 echo.
 
-ssh -o StrictHostKeyChecking=no -R 80:localhost:8501 nokey@localhost.run
+if exist cloudflared.exe (
+    echo [*] Launching Cloudflare global secure tunnel...
+    cloudflared.exe tunnel --url http://localhost:8501
+) else (
+    echo [*] Launching SSH secure tunnel...
+    ssh -o StrictHostKeyChecking=no -R 80:localhost:8501 nokey@localhost.run
+)
 
 echo.
 echo [!] Tunnel closed.

@@ -205,7 +205,7 @@ PORTAL_HTML = """<!DOCTYPE html>
                 emergency response authority routing.
             </p>
             <div class="action-group">
-                <a href="https://05192b1f268e6c.lhr.life" class="btn btn-primary" target="_blank">
+                <a href="https://doug-liver-uniprotkb-resolved.trycloudflare.com" class="btn btn-primary" target="_blank">
                     <span>⚡ Launch Live Laptop Server</span>
                 </a>
                 <a href="https://github.com/jitendradurgaprasad/VyomTech" class="btn btn-secondary" target="_blank">
@@ -228,10 +228,10 @@ PORTAL_HTML = """<!DOCTYPE html>
                     <b style="font-size: 0.95rem; letter-spacing: 0.02em;">LIVE DASHBOARD (HOSTED ON LOCAL LAPTOP &bull; PORT 8501)</b>
                 </div>
                 <div>
-                    <a href="https://05192b1f268e6c.lhr.life" target="_blank" style="color: #38bdf8; text-decoration: none; font-size: 0.85rem; font-family: monospace; font-weight: 600;">↗ Open Full Screen</a>
+                    <a href="https://doug-liver-uniprotkb-resolved.trycloudflare.com" target="_blank" style="color: #38bdf8; text-decoration: none; font-size: 0.85rem; font-family: monospace; font-weight: 600;">↗ Open Full Screen</a>
                 </div>
             </div>
-            <iframe src="https://05192b1f268e6c.lhr.life" style="width: 100%; height: 850px; border: none; background: #0e1117;" title="FireWatch AI Streamlit Dashboard"></iframe>
+            <iframe src="https://doug-liver-uniprotkb-resolved.trycloudflare.com" style="width: 100%; height: 850px; border: none; background: #0e1117;" title="FireWatch AI Streamlit Dashboard"></iframe>
         </div>
 
         <div class="grid">
